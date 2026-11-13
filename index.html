@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Camp Pharmacy Records</title>
+<style>
+  :root { --g:#0b6b3a; --g2:#e7f3ec; --ink:#16211b; --mut:#5d6b63; --line:#d9e0db; --bg:#f5f7f5; --warn:#b3261e; --warnbg:#fdecea; --amber:#8a5a00; --amberbg:#fff4d6; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; color:var(--ink); background:var(--bg); }
+  header { background:var(--g); color:#fff; padding:10px 14px; display:flex; align-items:center; gap:10px; position:sticky; top:0; z-index:5; }
+  header h1 { font-size:17px; margin:0; flex:1; cursor:pointer; }
+  header button { background:rgba(255,255,255,.16); color:#fff; border:0; border-radius:8px; padding:8px 11px; font-size:14px; cursor:pointer; }
+  #status { font-size:12.5px; padding:6px 14px; background:#fff; border-bottom:1px solid var(--line); color:var(--mut); display:flex; gap:8px; align-items:center; }
+  #status .dot { width:9px; height:9px; border-radius:50%; background:#9aa5a0; flex:none; }
+  #status.ok .dot { background:#1f9d55; } #status.pending .dot { background:#d99a00; } #status.err .dot { background:var(--warn); }
+  main { max-width:820px; margin:0 auto; padding:14px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:12px; }
+  input, select, textarea { width:100%; font:inherit; padding:10px 11px; border:1px solid #b9c4bd; border-radius:8px; background:#fff; color:var(--ink); }
+  input:focus, select:focus, textarea:focus { outline:2px solid var(--g); outline-offset:1px; }
+  #q { font-size:22px; padding:14px; letter-spacing:.5px; text-transform:uppercase; }
+  #q::placeholder { text-transform:none; letter-spacing:0; font-size:17px; }
+  label { display:block; font-size:13px; color:var(--mut); margin:0 0 3px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+  .wide { grid-column:1/-1; }
+  button.btn { font:inherit; border:1px solid var(--g); background:var(--g); color:#fff; border-radius:8px; padding:10px 14px; cursor:pointer; }
+  button.btn.ghost { background:#fff; color:var(--g); }
+  button.btn.danger { background:#fff; color:var(--warn); border-color:var(--warn); }
+  button.link { background:none; border:0; color:var(--g); font:inherit; font-size:14px; cursor:pointer; padding:4px 6px; }
+  button.link.danger { color:var(--warn); }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .res { display:flex; justify-content:space-between; gap:10px; padding:12px; border:1px solid var(--line); border-radius:10px; background:#fff; margin-top:8px; cursor:pointer; width:100%; text-align:left; font:inherit; color:inherit; }
+  .res:hover, .res:focus { border-color:var(--g); background:var(--g2); }
+  .code { font-weight:700; font-family:ui-monospace,Consolas,monospace; }
+  .mut { color:var(--mut); font-size:14px; }
+  .allergy { background:var(--warnbg); color:var(--warn); border:1px solid #f1b5b0; border-radius:8px; padding:9px 11px; font-weight:600; margin-top:10px; }
+  .note { background:var(--amberbg); color:var(--amber); border-radius:8px; padding:9px 11px; margin-top:8px; font-size:14.5px; white-space:pre-wrap; }
+  .entry { border-top:1px solid var(--line); padding:10px 0; }
+  .entry:first-child { border-top:0; }
+  .entry .drug { font-weight:600; }
+  .chk { display:flex; align-items:center; gap:7px; font-size:16px; color:var(--ink); border:1px solid #b9c4bd; border-radius:8px; padding:9px 13px; margin:0; cursor:pointer; }
+  .chk input { width:20px; height:20px; margin:0; }
+  .fld { margin-top:10px; } .pre { white-space:pre-wrap; }
+  .pill { display:inline-block; background:var(--g2); color:var(--g); border-radius:14px; padding:3px 11px; font-weight:600; font-size:14.5px; }
+  .tabs { display:flex; gap:6px; } .tab { flex:1; font:inherit; font-size:14.5px; padding:9px 4px; border:1px solid var(--line); background:#fff; border-radius:8px; cursor:pointer; color:var(--ink); }
+  .tab.on { background:var(--g); color:#fff; border-color:var(--g); font-weight:600; }
+  .badge { align-self:center; white-space:nowrap; font-size:13px; font-weight:600; border-radius:14px; padding:3px 10px; }
+  .badge.due { background:var(--amberbg); color:var(--amber); } .badge.ok { background:var(--g2); color:var(--g); } .badge.miss { background:var(--warnbg); color:var(--warn); }
+  .duec { border:2px solid var(--g); } .duer { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 0; border-top:1px solid var(--line); }
+  .duer .btn { padding:8px 20px; } .nextl { margin-top:10px; padding-top:10px; border-top:1px solid var(--line); }
+  .drugc { border:1px solid var(--line); border-radius:10px; padding:11px; margin-top:8px; } .drug { font-weight:600; }
+  .bar { height:8px; background:#e6ebe8; border-radius:4px; margin:8px 0 5px; overflow:hidden; } .bar i { display:block; height:100%; background:var(--g); }
+  .count { font-size:14.5px; }
+  .dots { display:flex; flex-wrap:wrap; gap:5px; margin-top:8px; align-items:center; } .gap { width:8px; }
+  .dot { width:30px; height:30px; border-radius:50%; border:1.5px solid #c4cdc7; background:#fff; color:var(--mut); font:600 12px system-ui; cursor:pointer; padding:0; }
+  .dot.given { background:var(--g); border-color:var(--g); color:#fff; } .dot.missed { background:var(--warnbg); border-color:#e39a94; color:var(--warn); }
+  .dot.due { border-color:#d99a00; background:var(--amberbg); color:var(--amber); box-shadow:0 0 0 2px #f3d27a; }
+  details.card summary { cursor:pointer; }
+  h2 { font-size:16px; margin:0 0 10px; }
+  .stats { display:flex; gap:18px; flex-wrap:wrap; }
+  .stats b { font-size:20px; display:block; }
+  pre { background:#f0f3f1; padding:10px; border-radius:8px; overflow:auto; font-size:12px; max-height:220px; }
+  ol { padding-left:20px; margin:8px 0; } li { margin-bottom:5px; }
+  .toast { position:fixed; left:50%; bottom:18px; transform:translateX(-50%); background:#16211b; color:#fff; padding:10px 16px; border-radius:20px; font-size:14px; z-index:9; max-width:90%; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="home">Camp Pharmacy Records</h1>
+  <button id="syncBtn" title="Sync now">Sync</button>
+  <button id="setBtn" title="Settings">Settings</button>
+</header>
+<div id="status"><span class="dot"></span><span id="statusText">Starting…</span></div>
+<div id="memwarn" hidden style="background:#fdecea;color:#b3261e;padding:10px 14px;font-weight:600;font-size:14px">This is only a preview: records typed here are NOT kept after you close it. Download the file and open it in Chrome to use it for real.</div>
+<main id="app"></main>
+<datalist id="drugs"></datalist>
+
+<script>
+/* ---------- helpers ---------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const norm = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const today = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+const fmtDate = s => { if (!s) return ''; const [y, m, d] = s.split('-'); return `${d}/${m}/${y}`; };
+function toast(msg) { document.querySelectorAll('.toast').forEach(t => t.remove()); const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 3200); }
+function ask(msg, okLabel) {
+  return new Promise(res => {
+    const o = document.createElement('div');
+    o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:20;padding:20px';
+    o.innerHTML = `<div class="card" style="max-width:360px;margin:0"><p style="margin-top:0">${esc(msg)}</p><div class="row" style="justify-content:flex-end"><button class="btn ghost" data-a="0">Cancel</button><button class="btn danger" data-a="1">${esc(okLabel || 'Delete')}</button></div></div>`;
+    o.onclick = e => { const a = e.target.dataset && e.target.dataset.a; if (a !== undefined || e.target === o) { o.remove(); res(a === '1'); } };
+    document.body.appendChild(o);
+  });
+}
+function stable(v) { // JSON with sorted keys, for comparing records
+  if (Array.isArray(v)) return '[' + v.map(stable).join(',') + ']';
+  if (v && typeof v === 'object') return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stable(v[k])).join(',') + '}';
+  return JSON.stringify(v ?? null);
+}
+
+/* ---------- local storage on this device (IndexedDB, falls back to localStorage) ---------- */
+const Store = {
+  db: null, mem: false, // mem = this browser view cannot store anything; records live only until the page closes
+  async open() {
+    try {
+      this.db = await new Promise((res, rej) => {
+        setTimeout(() => rej(new Error('timeout')), 3000);
+        const r = indexedDB.open('campPharmacy', 1);
+        r.onupgradeneeded = () => { r.result.createObjectStore('patients', { keyPath: 'id' }); r.result.createObjectStore('meta'); };
+        r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+      });
+    } catch (e) { this.db = null; }
+    if (!this.db) { try { localStorage.setItem('cp_test', '1'); localStorage.removeItem('cp_test'); } catch (e) { this.mem = true; } }
+    try { navigator.storage && navigator.storage.persist && navigator.storage.persist().catch(() => {}); } catch (e) {}
+  },
+  tx(store, mode, fn) {
+    return new Promise((res, rej) => { const t = this.db.transaction(store, mode); const rq = fn(t.objectStore(store)); t.oncomplete = () => res(rq && rq.result); t.onerror = () => rej(t.error); });
+  },
+  async all() {
+    if (this.mem) return [];
+    if (this.db) return this.tx('patients', 'readonly', s => s.getAll());
+    try { return Object.values(JSON.parse(localStorage.getItem('cp_patients') || '{}')); } catch (e) { return []; }
+  },
+  async put(p) {
+    if (this.mem) return;
+    try {
+      if (this.db) return await this.tx('patients', 'readwrite', s => s.put(p));
+      const m = {}; patients.forEach(x => m[x.id] = x); localStorage.setItem('cp_patients', JSON.stringify(m));
+    } catch (e) { this.mem = true; showStatus(); }
+  },
+  async getMeta(k) {
+    if (this.mem) return null;
+    if (this.db) return this.tx('meta', 'readonly', s => s.get(k));
+    try { return JSON.parse(localStorage.getItem('cp_meta_' + k)); } catch (e) { return null; }
+  },
+  async setMeta(k, v) {
+    if (this.mem) return;
+    try {
+      if (this.db) return await this.tx('meta', 'readwrite', s => s.put(v, k));
+      localStorage.setItem('cp_meta_' + k, JSON.stringify(v));
+    } catch (e) { this.mem = true; }
+  }
+};
+
+/* ---------- state ---------- */
+const patients = new Map();
+let S = { url: '', key: '', staff: '', lastSync: 0, lastSyncAt: 0 };
+let view = { name: 'home', q: '' };
+let syncing = false, syncError = '';
+
+const clean = p => { const { _dirty, _rev, ...rest } = p; return rest; };
+const live = () => [...patients.values()].filter(p => !p.deleted);
+const dirtyCount = () => [...patients.values()].filter(p => p._dirty).length;
+
+async function saveLocal(p, touchDetails) {
+  if (touchDetails) p.updatedAt = Date.now();
+  p._dirty = true; p._rev = (p._rev || 0) + 1;
+  patients.set(p.id, p);
+  await Store.put(p);
+  showStatus(); queueSync();
+}
+
+/* ---------- sync ---------- */
+function mergePatient(a, b) {
+  const base = (a.updatedAt || 0) >= (b.updatedAt || 0) ? a : b;
+  const map = new Map();
+  for (const e of [...(a.entries || []), ...(b.entries || [])]) { const x = map.get(e.id); if (!x || (e.updatedAt || 0) > (x.updatedAt || 0)) map.set(e.id, e); }
+  return { ...clean(base), entries: [...map.values()].sort((x, y) => x.id < y.id ? -1 : 1) };
+}
+async function applyRemote(records) {
+  let changed = false;
+  for (const raw of records || []) {
+    let r; try { r = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { continue; }
+    if (!r || !r.id) continue;
+    r.entries = (r.entries || []).sort((x, y) => x.id < y.id ? -1 : 1);
+    const local = patients.get(r.id);
+    let next;
+    if (!local) next = { ...r, _dirty: false, _rev: 0 };
+    else {
+      const m = mergePatient(local, r);
+      const same = stable(m) === stable(clean(r));
+      next = { ...m, _dirty: !same, _rev: (local._rev || 0) + (same ? 0 : 1) };
+      if (stable(m) === stable(mergePatient(local, local))) { if (same) { local._dirty = false; await Store.put(local); } continue; }
+    }
+    patients.set(next.id, next); await Store.put(next); changed = true;
+  }
+  return changed;
+}
+async function call(body) {
+  const r = await fetch(S.url, { method: 'POST', body: JSON.stringify({ ...body, key: S.key }), redirect: 'follow' });
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || 'Sync failed');
+  return j;
+}
+async function sync(manual) {
+  if (!S.url) { if (manual) { toast('Cloud sync is not set up yet — open Settings'); } return; }
+  if (syncing) return;
+  if (!navigator.onLine) { if (manual) toast('No internet. Records are safe on this device and will sync later.'); showStatus(); return; }
+  syncing = true; syncError = ''; showStatus();
+  try {
+    let res = await call({ since: S.lastSync || 0, changes: [] });
+    let changed = await applyRemote(res.records);
+    const dirty = [...patients.values()].filter(p => p._dirty);
+    const revs = new Map(dirty.map(p => [p.id, p._rev]));
+    res = await call({ since: res.time, changes: dirty.map(clean) });
+    for (const p of dirty) { const cur = patients.get(p.id); if (cur && cur._rev === revs.get(p.id)) { cur._dirty = false; await Store.put(cur); } }
+    changed = (await applyRemote(res.records)) || changed;
+    S.lastSync = res.time; S.lastSyncAt = Date.now(); await Store.setMeta('settings', S);
+    if (changed && !document.activeElement.matches('input,textarea,select')) render();
+    if (manual) toast('Synced');
+  } catch (e) { syncError = e.message || String(e); if (manual) toast('Sync failed: ' + syncError); }
+  finally { syncing = false; showStatus(); }
+}
+let syncTimer;
+function queueSync() { clearTimeout(syncTimer); syncTimer = setTimeout(() => sync(false), 4000); }
+window.addEventListener('online', () => sync(false));
+window.addEventListener('offline', showStatus);
+let lastSess = null; setInterval(() => { const k = today() + nowSess(); if (lastSess && k !== lastSess && !document.activeElement.matches('input,textarea,select')) render(); lastSess = k; }, 30000);
+setInterval(() => { if (navigator.onLine && S.url && (dirtyCount() || Date.now() - S.lastSyncAt > 3 * 60000)) sync(false); }, 45000);
+
+function showStatus() {
+  const el = $('#status'), n = dirtyCount(); let cls = '', t;
+  const wait = n ? ` · ${n} record${n > 1 ? 's' : ''} waiting to upload` : '';
+  $('#memwarn').hidden = !Store.mem;
+  if (syncing) { cls = 'pending'; t = 'Syncing…'; }
+  else if (!S.url) { t = 'Saved on this device only · cloud sync not set up (Settings)'; cls = 'pending'; }
+  else if (!navigator.onLine) { cls = 'pending'; t = 'Offline — saved on this device' + wait; }
+  else if (syncError) { cls = 'err'; t = 'Sync problem: ' + syncError + wait; }
+  else if (n) { cls = 'pending'; t = 'Saved on this device' + wait; }
+  else { cls = 'ok'; t = 'All records backed up to cloud' + (S.lastSyncAt ? ' · ' + new Date(S.lastSyncAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''); }
+  el.className = cls; $('#statusText').textContent = t;
+}
+
+/* ---------- schedule logic ---------- */
+const SESS = ['Morning', 'Afternoon', 'Night'];
+const nowSess = () => { const h = new Date().getHours(); return h < 12 ? 0 : h < 17 ? 1 : 2; };
+const addDays = (s, n) => { const [y, m, d] = s.split('-').map(Number); const t = new Date(Date.UTC(y, m - 1, d + n)); return t.toISOString().slice(0, 10); };
+const cmpSlot = (a, b) => a.date === b.date ? a.s - b.s : (a.date < b.date ? -1 : 1);
+const items = (p, t) => (p.entries || []).filter(e => e.t === t && !e.deleted);
+const timesOf = d => SESS.map((x, i) => i).filter(i => (d.times || []).includes(SESS[i]));
+const totalOf = d => Math.min(200, Math.max(0, Math.round(+d.days || 0) * timesOf(d).length));
+// Every dose has a fixed place: a date and a session. The schedule moves on whether or not a dose was collected.
+function slots(d) {
+  const times = timesOf(d), total = totalOf(d), out = [];
+  if (!times.length || !d.startDate) return out;
+  let date = d.startDate, first = true, guard = 0;
+  while (out.length < total && guard++ < 400) {
+    for (const s of times) { if (first && s < (d.startSession || 0)) continue; if (out.length < total) out.push({ date, s }); }
+    first = false; date = addDays(date, 1);
+  }
+  return d.stopped ? out.filter(x => cmpSlot(x, { date: d.stopDate, s: d.stopSession }) < 0) : out;
+}
+const doseId = (d, x) => d.id + '|' + x.date + '|' + x.s;
+function status(p, d) {
+  const given = new Set(items(p, 'dose').map(e => e.id)), now = { date: today(), s: nowSess() };
+  const st = slots(d).map(x => { const c = cmpSlot(x, now); return { ...x, state: given.has(doseId(d, x)) ? 'given' : c < 0 ? 'missed' : c === 0 ? 'due' : 'up' }; });
+  const n = k => st.filter(x => x.state === k).length;
+  return { st, total: totalOf(d), taken: n('given'), missed: n('missed'), left: n('due') + n('up'), due: st.find(x => x.state === 'due'), next: st.find(x => x.state === 'up'),
+    givenNow: st.find(x => x.state === 'given' && cmpSlot(x, now) === 0) };
+}
+async function setDose(p, d, x, give) {
+  const id = doseId(d, x); let e = (p.entries || []).find(z => z.id === id);
+  if (e) { e.deleted = !give; e.updatedAt = Date.now(); if (give) { e.by = S.staff || ''; e.at = Date.now(); } }
+  else if (give) p.entries.push({ id, t: 'dose', drugId: d.id, date: x.date, s: x.s, by: S.staff || '', at: Date.now(), updatedAt: Date.now() });
+  await saveLocal(p, false);
+}
+const dayLabel = date => date === today() ? 'today' : date === addDays(today(), 1) ? 'tomorrow' : 'on ' + fmtDate(date);
+const drugName = d => esc(d.drug) + (d.dose ? ' <span class="mut">' + esc(d.dose) + '</span>' : '');
+
+/* ---------- views ---------- */
+const COMMON = ['Tab Paracetamol 500mg', 'Tab Ibuprofen 400mg', 'Tab Diclofenac 50mg', 'Tab Artemether/Lumefantrine 80/480mg', 'Cap Amoxicillin 500mg', 'Tab Amoxicillin/Clavulanate 625mg', 'Tab Ciprofloxacin 500mg', 'Tab Metronidazole 400mg', 'Tab Azithromycin 500mg', 'Tab Loratadine 10mg', 'Tab Cetirizine 10mg', 'Tab Chlorpheniramine 4mg', 'Cap Omeprazole 20mg', 'Susp Antacid', 'Tab Hyoscine butylbromide 10mg', 'Cap Loperamide 2mg', 'ORS sachet', 'Tab Zinc 20mg', 'Tab Vitamin C 100mg', 'Syr Cough mixture', 'Salbutamol inhaler', 'Tab Prednisolone 5mg'];
+function refreshDrugs() {
+  const set = new Set(COMMON);
+  patients.forEach(p => items(p, 'drug').forEach(e => e.drug && set.add(e.drug)));
+  $('#drugs').innerHTML = [...set].sort().map(d => `<option value="${esc(d)}">`).join('');
+}
+function go(v) { view = v; render(); window.scrollTo(0, 0); }
+function render() {
+  if (view.name === 'patient') return renderPatient();
+  if (view.name === 'settings') return renderSettings();
+  renderHome();
+}
+function search(q) {
+  const qn = norm(q), ql = q.trim().toLowerCase();
+  if (!qn && !ql) return [];
+  return live().filter(p => (qn && p.id.includes(qn)) || (ql.length > 1 && (p.name || '').toLowerCase().includes(ql)))
+    .sort((a, b) => (b.id.endsWith(qn) - a.id.endsWith(qn)) || (b.id.startsWith(qn) - a.id.startsWith(qn)) || a.id.localeCompare(b.id)).slice(0, 30);
+}
+// who is expected in a given session today
+function sessionList(s) {
+  const t = today(), out = [];
+  live().forEach(p => {
+    const given = new Set(items(p, 'dose').map(e => e.id)); const ds = [];
+    items(p, 'drug').forEach(d => { const x = slots(d).find(x => x.date === t && x.s === s); if (x) ds.push({ d, done: given.has(doseId(d, x)) }); });
+    if (ds.length) out.push({ p, ds, pending: ds.filter(x => !x.done).length });
+  });
+  return out.sort((a, b) => (b.pending > 0) - (a.pending > 0) || a.p.id.localeCompare(b.p.id));
+}
+function renderHome() {
+  const all = live(), cur = nowSess(), vs = view.sess ?? cur;
+  const list = sessionList(vs), pend = list.filter(x => x.pending).length;
+  $('#app').innerHTML = `
+    <div class="card">
+      <label for="q">Type the state code (the last digits are enough), or a name</label>
+      <input id="q" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. RV/26C/1234 or just 1234" value="${esc(view.q || '')}">
+      <div id="results"></div>
+    </div>
+    <div class="card"><h2>Expected today</h2>
+      <div class="tabs">${SESS.map((n, i) => `<button class="tab ${i === vs ? 'on' : ''}" data-sess="${i}">${n}${i === cur ? ' (now)' : ''}</button>`).join('')}</div>
+      <p class="mut" style="margin:10px 0 0">${list.length ? `${list.length} patient${list.length > 1 ? 's' : ''} expected · ${pend} still to ${vs < cur ? 'collect (missed)' : 'collect'}` : 'Nobody is scheduled for this session.'}</p>
+      ${list.map(x => `<button class="res" data-id="${esc(x.p.id)}"><span><span class="code">${esc(x.p.code)}</span> &nbsp;${esc(x.p.name || '')}<br><span class="mut">${x.ds.map(z => (z.done ? '✓ ' : '') + esc(z.d.drug)).join(', ')}</span></span>
+        <span class="badge ${x.pending ? (vs < cur ? 'miss' : 'due') : 'ok'}">${x.pending ? (vs < cur ? x.pending + ' missed' : x.pending + ' to give') : '✓ given'}</span></button>`).join('')}
+    </div>
+    <div class="card stats"><div><b>${all.length}</b><span class="mut">patients on record</span></div><div><b>${all.filter(p => items(p, 'drug').some(d => status(p, d).left)).length}</b><span class="mut">currently on drugs</span></div></div>`;
+  const q = $('#q');
+  const open = () => document.querySelectorAll('.res').forEach(b => b.onclick = () => go({ name: 'patient', id: b.dataset.id }));
+  const draw = () => {
+    view.q = q.value; const res = search(q.value); const qn = norm(q.value);
+    const exact = patients.get(qn);
+    const fullCode = qn.length >= 7 && /[A-Z]/.test(qn) && /\d{3}/.test(qn);
+    const canAdd = qn.length >= 3 && !(exact && !exact.deleted) && (!res.length || fullCode);
+    $('#results').innerHTML = res.map(p => {
+      const act = items(p, 'drug').filter(d => status(p, d).left), due = act.filter(d => status(p, d).due).length;
+      return `<button class="res" data-id="${esc(p.id)}"><span><span class="code">${esc(p.code)}</span> &nbsp;${esc(p.name || '')}${p.allergies ? ' <span style="color:var(--warn)">⚠ allergy</span>' : ''}<br><span class="mut">${act.length ? 'On: ' + act.map(d => esc(d.drug)).join(', ') : 'Not on any drug now'}</span></span>${due ? `<span class="badge due">${due} due now</span>` : '<span class="mut">Open ›</span>'}</button>`;
+    }).join('') + (q.value.trim() && !res.length ? `<p class="mut">No patient found for “${esc(q.value.trim())}”. First visit? Register below.</p>` : '')
+      + (canAdd ? `<div class="row" style="margin-top:10px"><button class="btn" id="addNew">+ Register new patient ${esc(q.value.trim().toUpperCase())}</button></div>` : '');
+    open();
+    const a = $('#addNew'); if (a) a.onclick = () => go({ name: 'patient', id: qn, newCode: q.value.trim().toUpperCase(), mode: 'edit' });
+  };
+  q.oninput = draw;
+  q.onkeydown = e => { if (e.key === 'Enter') { const l = search(q.value); if (l.length === 1) go({ name: 'patient', id: l[0].id }); else if (!l.length && $('#addNew')) $('#addNew').click(); } };
+  document.querySelectorAll('[data-sess]').forEach(b => b.onclick = () => { view.sess = +b.dataset.sess; render(); });
+  draw(); open(); if (!view.sess && view.sess !== 0) q.focus();
+}
+
+function drugCard(p, d) {
+  const s = status(p, d), pct = s.total ? Math.round(100 * s.taken / s.total) : 0;
+  const state = d.stopped ? 'Stopped' : !s.left ? 'Course finished' : '';
+  let last = '';
+  const dots = s.st.map(x => { const gap = last && last !== x.date; last = x.date; return `${gap ? '<span class="gap"></span>' : ''}<button class="dot ${x.state}" data-drug="${d.id}" data-date="${x.date}" data-s="${x.s}" title="${fmtDate(x.date)} ${SESS[x.s]}">${x.state === 'given' ? '✓' : 'MAN'[x.s]}</button>`; }).join('');
+  return `<div class="drugc"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><div class="drug">${drugName(d)}</div>
+    <div class="mut">${timesOf(d).map(i => SESS[i]).join(' · ')} × ${esc(d.days)} day${d.days == 1 ? '' : 's'}${state ? ` · <b>${state}</b>` : ''}</div></div><button class="link" data-editdrug="${d.id}">Edit</button></div>
+    <div class="bar"><i style="width:${pct}%"></i></div>
+    <div class="count"><b>${s.taken} of ${s.total}</b> doses taken${s.missed ? ` · <span style="color:var(--warn)">${s.missed} missed</span>` : ''} · ${s.left} left</div>
+    <div class="dots">${dots}</div></div>`;
+}
+function renderPatient() {
+  let p = patients.get(view.id);
+  const isNew = !p || p.deleted;
+  if (isNew) p = { id: view.id, code: view.newCode || view.id, name: '', sex: '', platoon: '', phone: '', allergies: '', entries: (p && p.entries) || [], createdAt: Date.now() };
+  const mode = isNew ? 'edit' : view.mode || '';
+  const rxs = items(p, 'rx').sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.createdAt - a.createdAt);
+  const drugs = items(p, 'drug'), cur = nowSess();
+  const back = () => go({ name: 'patient', id: p.id });
+  let h = `<div class="row" style="margin-bottom:10px"><button class="btn ghost" id="back">‹ Search</button></div>`;
+
+  if (mode === 'edit') {
+    h += `<form class="card" id="pf"><h2>${isNew ? 'Register new patient' : 'Edit patient details'}</h2><div class="grid">
+      <div><label>State code</label><input name="code" value="${esc(p.code)}" ${isNew ? '' : 'readonly'} style="text-transform:uppercase"></div>
+      <div><label>Full name</label><input name="name" value="${esc(p.name)}" required></div>
+      <div><label>Sex</label><select name="sex"><option value=""></option>${['M', 'F'].map(s => `<option ${p.sex === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+      <div><label>Platoon</label><input name="platoon" value="${esc(p.platoon)}"></div>
+      <div><label>Phone</label><input name="phone" inputmode="tel" value="${esc(p.phone)}"></div>
+      <div class="wide"><label>Drug allergies (leave empty if none known)</label><input name="allergies" value="${esc(p.allergies)}"></div>
+    </div><div class="row" style="margin-top:12px"><button class="btn">${isNew ? 'Save and write prescription' : 'Save'}</button>${isNew ? '' : '<button type="button" class="btn ghost" id="cancel">Cancel</button><span style="flex:1"></span><button type="button" class="btn danger" id="delP">Delete patient</button>'}</div></form>`;
+  } else {
+    h += `<div class="card"><div class="row" style="justify-content:space-between"><div><div class="code" style="font-size:20px">${esc(p.code)}</div><div style="font-size:18px">${esc(p.name)}</div>
+      <div class="mut">${[p.sex, p.platoon && 'Platoon ' + p.platoon, p.phone].filter(Boolean).map(esc).join(' · ')}</div></div><button class="btn ghost" id="editP">Edit details</button></div>
+      ${p.allergies ? `<div class="allergy">⚠ ALLERGY: ${esc(p.allergies)}</div>` : ''}</div>`;
+  }
+
+  if (mode === 'rx') {
+    const r = view.rxId ? rxs.find(x => x.id === view.rxId) : null, v = r || { date: today() };
+    h += `<form class="card" id="rf"><h2>${r ? 'Edit prescription' : 'New prescription'}</h2><div class="grid">
+      <div><label>Date</label><input name="date" type="date" value="${esc(v.date)}" required></div>
+      <div class="wide"><label>Diagnosis</label><input name="diagnosis" value="${esc(v.diagnosis)}" required></div>
+      <div><label>Prescribed by</label><input name="by" value="${esc(v.by)}"></div>
+    </div><div class="row" style="margin-top:12px"><button class="btn">${r ? 'Save' : 'Save and add drugs'}</button><button type="button" class="btn ghost" id="cancel">Cancel</button>${r ? '<span style="flex:1"></span><button type="button" class="btn danger" id="delRx">Delete prescription</button>' : ''}</div></form>`;
+  }
+  if (mode === 'drug') {
+    const d = view.drugId ? drugs.find(x => x.id === view.drugId) : null, v = d || { times: [], days: '', startDate: today(), startSession: cur };
+    h += `<form class="card" id="df"><h2>${d ? 'Edit drug' : 'Add drug to prescription'}</h2><div class="grid">
+      <div class="wide"><label>Drug</label><input name="drug" list="drugs" value="${esc(v.drug)}" required autocomplete="off" placeholder="e.g. Tab Paracetamol 500mg"></div>
+      <div><label>Dose each time</label><input name="dose" value="${esc(v.dose)}" placeholder="e.g. 2 tabs / 1g"></div>
+      <div><label>Number of days</label><input name="days" type="number" min="1" max="60" inputmode="numeric" value="${esc(v.days)}" required></div>
+      <div class="wide"><label>When to take it</label><div class="row">${SESS.map(t => `<label class="chk"><input type="checkbox" name="times" value="${t}" ${(v.times || []).includes(t) ? 'checked' : ''}> ${t}</label>`).join('')}</div></div>
+      <div><label>First dose date</label><input name="startDate" type="date" value="${esc(v.startDate)}" required></div>
+      <div><label>First dose session</label><select name="startSession">${SESS.map((t, i) => `<option value="${i}" ${+v.startSession === i ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+      <div class="wide" id="tot" style="font-weight:600"></div>
+    </div><div class="row" style="margin-top:12px"><button class="btn">${d ? 'Save' : 'Add drug'}</button><button type="button" class="btn ghost" id="cancel">${d ? 'Cancel' : 'Done'}</button>
+      ${d ? `<span style="flex:1"></span><button type="button" class="btn ghost" id="stopD">${d.stopped ? 'Restart drug' : 'Stop drug'}</button><button type="button" class="btn danger" id="delD">Delete</button>` : ''}</div></form>`;
+  }
+
+  if (!isNew && mode !== 'edit') {
+    // what is due this session, and what comes next
+    const dueNow = [], doneNow = []; let next = null;
+    drugs.forEach(d => { const s = status(p, d); if (s.due) dueNow.push({ d, x: s.due }); if (s.givenNow) doneNow.push({ d, x: s.givenNow }); if (s.next && (!next || cmpSlot(s.next, next.x) < 0)) next = { x: s.next, ds: [] }; });
+    if (next) drugs.forEach(d => { const s = status(p, d); if (s.next && cmpSlot(s.next, next.x) === 0) next.ds.push(d); });
+    if (drugs.length) h += `<div class="card duec"><h2>${SESS[cur]} — ${dueNow.length ? 'to give now' : doneNow.length ? 'all given' : 'nothing due'}</h2>
+      ${dueNow.map(z => `<div class="duer"><span class="drug">${drugName(z.d)}</span><button class="btn" data-give="${z.d.id}">Give</button></div>`).join('')}
+      ${doneNow.map(z => `<div class="duer"><span>✓ ${drugName(z.d)}</span><button class="link" data-undo="${z.d.id}">Undo</button></div>`).join('')}
+      ${dueNow.length > 1 ? `<div class="row" style="margin-top:10px"><button class="btn" id="giveAll">Give all ${dueNow.length}</button></div>` : ''}
+      <div class="nextl">${next ? `<b>Next:</b> ${SESS[next.x.s]} ${dayLabel(next.x.date)} — ${next.ds.map(d => drugName(d)).join(', ')}` : dueNow.length ? 'These are the last doses.' : 'No more doses scheduled.'}</div></div>`;
+    const rxCard = (r, open) => {
+      const ds = drugs.filter(d => d.rxId === r.id);
+      const body = `<div class="mut">Diagnosis</div><div style="margin-bottom:6px">${esc(r.diagnosis) || '—'}${r.by ? ` <span class="mut">· by ${esc(r.by)}</span>` : ''}</div>
+        ${ds.length ? ds.map(d => drugCard(p, d)).join('') : '<p class="mut">No drugs on this prescription yet.</p>'}
+        <div class="row" style="margin-top:12px"><button class="btn ghost" data-adddrug="${r.id}">+ Add drug</button><button class="link" data-editrx="${r.id}">Edit prescription</button></div>`;
+      return open ? `<div class="card"><h2>Current prescription · ${fmtDate(r.date)}</h2>${body}</div>` : `<details class="card"><summary><b>${fmtDate(r.date)}</b> · ${esc(r.diagnosis)} <span class="mut">(${ds.length} drug${ds.length === 1 ? '' : 's'})</span></summary><div style="margin-top:10px">${body}</div></details>`;
+    };
+    if (mode !== 'rx') h += rxs.length ? rxCard(rxs[0], true) : `<div class="card"><p style="margin-top:0">No prescription yet for this patient.</p></div>`;
+    if (!mode) h += `<div class="row" style="margin-bottom:12px"><button class="btn" id="newRx">${rxs.length ? 'New prescription (new visit)' : 'Write prescription'}</button></div>`;
+    if (rxs.length > 1) h += `<h2 style="margin:16px 0 8px">Earlier prescriptions</h2>` + rxs.slice(1).map(r => rxCard(r, false)).join('');
+    if (p.drugs || p.diagnosis) h += `<div class="note">Old note — ${esc(p.diagnosis || '')} ${esc(p.drugs || '')}</div>`;
+  }
+  $('#app').innerHTML = h;
+
+  const on = (sel, fn) => document.querySelectorAll(sel).forEach(el => el.onclick = () => fn(el));
+  on('#back', () => go({ name: 'home', q: '' }));
+  on('#cancel', back);
+  on('#editP', () => go({ name: 'patient', id: p.id, mode: 'edit' }));
+  on('#newRx', () => go({ name: 'patient', id: p.id, mode: 'rx' }));
+  on('[data-editrx]', el => go({ name: 'patient', id: p.id, mode: 'rx', rxId: el.dataset.editrx }));
+  on('[data-adddrug]', el => go({ name: 'patient', id: p.id, mode: 'drug', rxId: el.dataset.adddrug }));
+  on('[data-editdrug]', el => go({ name: 'patient', id: p.id, mode: 'drug', drugId: el.dataset.editdrug }));
+  const byId = id => drugs.find(d => d.id === id);
+  on('[data-give]', async el => { const d = byId(el.dataset.give); await setDose(p, d, status(p, d).due, true); render(); });
+  on('[data-undo]', async el => { const d = byId(el.dataset.undo); await setDose(p, d, status(p, d).givenNow, false); render(); });
+  on('#giveAll', async () => { for (const d of drugs) { const s = status(p, d); if (s.due) await setDose(p, d, s.due, true); } toast('All given'); render(); });
+  on('.dot', async el => {
+    const d = byId(el.dataset.drug), x = { date: el.dataset.date, s: +el.dataset.s }, label = `${d.drug}, ${SESS[x.s]} ${fmtDate(x.date)}`;
+    if (el.classList.contains('up')) return toast('Not due yet: ' + SESS[x.s] + ' ' + dayLabel(x.date));
+    if (el.classList.contains('given')) { if (!await ask(`Mark as NOT given? ${label}`, 'Mark not given')) return; await setDose(p, d, x, false); }
+    else if (el.classList.contains('missed')) { if (!await ask(`This dose was missed. Mark it as given? ${label}`, 'Mark given')) return; await setDose(p, d, x, true); }
+    else await setDose(p, d, x, true);
+    render();
+  });
+  on('#delP', async () => { if (!await ask(`Delete ${p.code} ${p.name} and the whole record?`)) return; p.deleted = true; await saveLocal(p, true); toast('Patient deleted'); go({ name: 'home', q: '' }); });
+
+  const pf = $('#pf');
+  if (pf) pf.onsubmit = async ev => {
+    ev.preventDefault(); const f = Object.fromEntries(new FormData(pf));
+    if (isNew) { const id = norm(f.code); if (id.length < 3) return toast('Enter a valid state code'); const ex = patients.get(id); if (ex && !ex.deleted) return toast('That state code already exists'); p.id = id; p.code = f.code.trim().toUpperCase(); if (ex) p.entries = ex.entries || []; }
+    Object.assign(p, { name: f.name.trim(), sex: f.sex, platoon: f.platoon.trim(), phone: f.phone.trim(), allergies: f.allergies.trim(), deleted: false });
+    await saveLocal(p, true); toast('Patient saved'); go({ name: 'patient', id: p.id, mode: isNew ? 'rx' : '' });
+  };
+  const rf = $('#rf');
+  if (rf) {
+    const r = view.rxId ? rxs.find(x => x.id === view.rxId) : null;
+    rf.onsubmit = async ev => {
+      ev.preventDefault(); const f = Object.fromEntries(new FormData(rf)); for (const k in f) f[k] = f[k].trim();
+      let id = r && r.id;
+      if (r) Object.assign(r, f, { updatedAt: Date.now() }); else { id = uid(); p.entries.push({ id, t: 'rx', createdAt: Date.now(), updatedAt: Date.now(), ...f }); }
+      await saveLocal(p, false); go(r ? { name: 'patient', id: p.id } : { name: 'patient', id: p.id, mode: 'drug', rxId: id });
+    };
+    on('#delRx', async () => { if (!await ask('Delete this prescription and all its drugs?')) return; const now = Date.now(); r.deleted = true; r.updatedAt = now; drugs.filter(d => d.rxId === r.id).forEach(d => { d.deleted = true; d.updatedAt = now; }); await saveLocal(p, false); back(); });
+  }
+  const df = $('#df');
+  if (df) {
+    const d = view.drugId ? byId(view.drugId) : null;
+    const read = () => { const fd = new FormData(df); return { drug: fd.get('drug').trim(), dose: fd.get('dose').trim(), days: Math.round(+fd.get('days') || 0), times: fd.getAll('times'), startDate: fd.get('startDate'), startSession: +fd.get('startSession') }; };
+    const tot = () => { const v = read(), n = totalOf(v), sl = slots(v); $('#tot').textContent = n ? `Total: ${n} doses. Last dose: ${SESS[sl[sl.length - 1].s]}, ${fmtDate(sl[sl.length - 1].date)}.` : 'Tick when to take it and enter the days to see the total doses.'; };
+    df.oninput = tot; tot();
+    df.onsubmit = async ev => {
+      ev.preventDefault(); const v = read();
+      if (!v.times.length) return toast('Tick at least one: Morning, Afternoon or Night');
+      if (v.days < 1) return toast('Enter the number of days');
+      if (d) Object.assign(d, v, { updatedAt: Date.now() }); else p.entries.push({ id: uid(), t: 'drug', rxId: view.rxId, createdAt: Date.now(), updatedAt: Date.now(), ...v });
+      await saveLocal(p, false); refreshDrugs(); toast(d ? 'Drug updated' : v.drug + ' added — add another, or press Done');
+      go(d ? { name: 'patient', id: p.id } : { name: 'patient', id: p.id, mode: 'drug', rxId: view.rxId });
+    };
+    on('#stopD', async () => {
+      if (d.stopped) d.stopped = false;
+      else { if (!await ask(`Stop ${d.drug}? Remaining doses will be cancelled.`, 'Stop drug')) return; const s = status(p, d); Object.assign(d, { stopped: true, stopDate: today(), stopSession: nowSess() + (s.givenNow ? 1 : 0) }); }
+      d.updatedAt = Date.now(); await saveLocal(p, false); back();
+    });
+    on('#delD', async () => { if (!await ask(`Delete ${d.drug} from the prescription?`)) return; d.deleted = true; d.updatedAt = Date.now(); await saveLocal(p, false); back(); });
+  }
+  const foc = $('#pf [name=name]') || $('#rf [name=diagnosis]') || $('#df [name=drug]'); if (foc && !foc.value) foc.focus();
+}
+
+const SCRIPT = `// Camp Pharmacy Records - cloud sync (Google Apps Script)
+const KEY = 'CHANGE-THIS-PASSWORD';   // must match the Sync password in the app
+const COLS = ['State code','Name','Platoon','Allergies','Prescriptions and doses','Server time','Data (do not edit)'];
+
+function doPost(e) {
+  var out;
+  try { out = handle(JSON.parse(e.postData.contents)); } catch (err) { out = { ok: false, error: String(err) }; }
+  return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
+}
+function handle(req) {
+  if (req.key !== KEY) return { ok: false, error: 'Wrong sync password' };
+  var lock = LockService.getScriptLock(); lock.waitLock(25000);
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sh = ss.getSheetByName('Records') || ss.insertSheet('Records');
+    if (sh.getLastRow() === 0) { sh.appendRow(COLS); sh.setFrozenRows(1); }
+    var now = Date.now(), last = sh.getLastRow();
+    var rows = last > 1 ? sh.getRange(2, 1, last - 1, 7).getValues() : [];
+    var index = {}, pulled = [], since = Number(req.since) || 0;
+    rows.forEach(function (r, i) { index[idOf(r[0])] = i; if (Number(r[5]) > since) pulled.push(r[6]); });
+    var next = rows.length;
+    (req.changes || []).forEach(function (p) {
+      var row = [[p.deleted ? p.code + ' (deleted)' : p.code, p.name || '', p.platoon || '', p.allergies || '', summary(p), now, JSON.stringify(p)]];
+      var i = index[p.id]; if (i === undefined) { i = next++; index[p.id] = i; }
+      sh.getRange(i + 2, 1, 1, 7).setNumberFormat('@').setValues(row);
+    });
+    return { ok: true, time: now, records: pulled };
+  } finally { lock.releaseLock(); }
+}
+function idOf(code) { return String(code).replace(' (deleted)', '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+function summary(p) {
+  var es = (p.entries || []).filter(function (e) { return !e.deleted; });
+  var of = function (t) { return es.filter(function (e) { return e.t === t; }); };
+  return of('rx').sort(function (a, b) { return a.date < b.date ? 1 : -1; }).map(function (r) {
+    return r.date + ' Dx: ' + (r.diagnosis || '') + '\\n' + of('drug').filter(function (d) { return d.rxId === r.id; }).map(function (d) {
+      var total = (d.times || []).length * (Number(d.days) || 0);
+      var given = of('dose').filter(function (x) { return x.drugId === d.id; }).length;
+      return '  - ' + d.drug + ' ' + (d.dose || '') + ' [' + (d.times || []).join('/') + ' x ' + d.days + ' days] taken ' + given + ' of ' + total + (d.stopped ? ' (stopped)' : '');
+    }).join('\\n');
+  }).join('\\n').slice(0, 45000);
+}`;
+
+function renderSettings() {
+  $('#app').innerHTML = `<div class="row" style="margin-bottom:10px"><button class="btn ghost" id="back">‹ Search</button></div>
+  <form class="card" id="sf"><h2>Cloud sync</h2>
+    <div class="grid"><div class="wide"><label>Web app URL (from Google Apps Script)</label><input name="url" value="${esc(S.url)}" placeholder="https://script.google.com/macros/s/…/exec"></div>
+    <div><label>Sync password</label><input name="key" value="${esc(S.key)}"></div><div><label>Your name (recorded on each dose you give)</label><input name="staff" value="${esc(S.staff)}"></div></div>
+    <div class="row" style="margin-top:12px"><button class="btn">Save and sync</button></div>
+    <details style="margin-top:14px"><summary>How to set up cloud sync (once, about 5 minutes)</summary>
+    <ol><li>On a computer, sign in to the Google account that should hold the records and open <b>sheets.new</b>. Name the sheet.</li>
+    <li>Menu: <b>Extensions → Apps Script</b>. Delete what is there and paste the script below.</li>
+    <li>On line 2, replace CHANGE-THIS-PASSWORD with a password of your own.</li>
+    <li><b>Deploy → New deployment → Web app</b>. Execute as: <b>Me</b>. Who has access: <b>Anyone</b>. Deploy and approve the permission prompt.</li>
+    <li>Copy the <b>Web app URL</b> into the box above, type the same password, and press Save and sync.</li>
+    <li>Do step 5 on every device that should share the records.</li></ol>
+    <button type="button" class="btn ghost" id="copyScript">Copy script</button><pre>${esc(SCRIPT)}</pre></details></form>
+  <div class="card"><h2>Backup on this device</h2><p class="mut">Download a copy of all records, or load one from another device. Loading merges; it never wipes existing records.</p>
+    <div class="row"><button class="btn ghost" id="exp">Download backup</button><button class="btn ghost" id="csv">Download as spreadsheet (CSV)</button><label class="btn ghost" style="margin:0;color:var(--g);font-size:16px;border:1px solid var(--g);border-radius:8px;padding:10px 14px;cursor:pointer">Load backup<input type="file" id="imp" accept=".json,application/json" hidden></label></div></div>`;
+  $('#back').onclick = () => go({ name: 'home', q: '' });
+  $('#sf').onsubmit = async ev => { ev.preventDefault(); const f = Object.fromEntries(new FormData($('#sf'))); const urlChanged = f.url.trim() !== S.url; Object.assign(S, { url: f.url.trim(), key: f.key, staff: f.staff.trim() }); if (urlChanged) { S.lastSync = 0; for (const p of patients.values()) { p._dirty = true; await Store.put(p); } } await Store.setMeta('settings', S); toast('Settings saved'); showStatus(); sync(true); };
+  $('#copyScript').onclick = async () => { try { await navigator.clipboard.writeText(SCRIPT); toast('Script copied'); } catch (e) { const r = document.createRange(); r.selectNodeContents($('pre')); getSelection().removeAllRanges(); getSelection().addRange(r); toast('Script selected — copy it'); } };
+  const dl = (name, text, type) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; document.body.appendChild(a); a.click(); a.remove(); };
+  $('#exp').onclick = () => dl(`pharmacy-backup-${today()}.json`, JSON.stringify([...patients.values()].map(clean)), 'application/json');
+  $('#csv').onclick = () => {
+    const c = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+    const rows = [['State code', 'Name', 'Sex', 'Platoon', 'Phone', 'Allergies', 'Prescription date', 'Diagnosis', 'Drug', 'Dose', 'When', 'Days', 'Total doses', 'Taken', 'Missed', 'Left', 'Status']];
+    live().sort((a, b) => a.id.localeCompare(b.id)).forEach(p => {
+      const ds = items(p, 'drug'), base = [p.code, p.name, p.sex, p.platoon, p.phone, p.allergies];
+      if (!ds.length) return rows.push(base);
+      ds.forEach(d => { const r = items(p, 'rx').find(x => x.id === d.rxId) || {}, s = status(p, d); rows.push([...base, r.date, r.diagnosis, d.drug, d.dose, (d.times || []).join(' / '), d.days, s.total, s.taken, s.missed, s.left, d.stopped ? 'Stopped' : s.left ? 'Ongoing' : 'Finished']); });
+    });
+    dl(`pharmacy-records-${today()}.csv`, '﻿' + rows.map(r => r.map(c).join(',')).join('\r\n'), 'text/csv');
+  };
+  $('#imp').onchange = async ev => { const file = ev.target.files[0]; if (!file) return; try { const arr = JSON.parse(await file.text()); if (!Array.isArray(arr)) throw 0; await applyRemote(arr); for (const p of patients.values()) { p._dirty = true; await Store.put(p); } refreshDrugs(); showStatus(); queueSync(); toast(`Backup loaded (${arr.length} records)`); } catch (e) { toast('That file is not a valid backup'); } };
+}
+
+/* ---------- start ---------- */
+$('#home').onclick = () => go({ name: 'home', q: '' });
+$('#setBtn').onclick = () => go({ name: 'settings' });
+$('#syncBtn').onclick = () => sync(true);
+(async () => {
+  await Store.open();
+  (await Store.all()).forEach(p => patients.set(p.id, p));
+  S = Object.assign(S, (await Store.getMeta('settings')) || {});
+  refreshDrugs(); render(); showStatus(); sync(false);
+})();
+</script>
+</body>
+</html>
