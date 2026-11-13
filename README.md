@@ -24,14 +24,35 @@ Each patient is one record: `{id, code, name, sex, platoon, phone, allergies, up
 - `drug` `{t:'drug', rxId, drug, dose, times[], days, startDate, startSession, stopped, stopDate, stopSession}`
 - `dose` `{t:'dose', drugId, date, s, by, at}` with id `drugId|date|session`, so two devices giving the same dose merge into one.
 
-## Storage and sync
-- Local: IndexedDB (falls back to localStorage, then memory with a warning banner).
-- Cloud: optional Google Apps Script web app writing to a Google Sheet (script is embedded in Settings).
-  Sync is pull -> merge -> push; patient fields are last-write-wins, entries merge per item by `updatedAt`.
-- Tested in headless Chrome with two simulated devices. The Apps Script side has only been run against a mock.
+## Files
+- `index.html` the whole app (no build step).
+- `sw.js`, `manifest.webmanifest`, `icon*` make it an installable app that opens offline.
+- `supabase/schema.sql` database tables, access rules and the merge function. Run once in the Supabase SQL Editor.
 
-## Next steps (requested by the owner)
-1. Put the project on GitHub.
-2. Replace the Google Sheet with a real database (e.g. Supabase/Postgres or Firebase), keeping offline-first sync.
-3. Host it as an installable PWA (service worker) so phones can open it offline; a local file is unreliable on Android.
-4. Add staff sign-in, since these are patient records.
+## Storage and sync
+- Local: IndexedDB (falls back to localStorage, then memory with a warning banner). The phone is the working copy.
+- Cloud: Supabase (Postgres), called with plain `fetch` (no library), so nothing extra must load offline.
+  - Pull: `GET /rest/v1/patients?server_ts=gt.<last sync - 2 min>`.
+  - Push: `rpc/sync_push` merges on the server under a row lock: patient fields newest `updatedAt` wins,
+    entries merged per item by `updatedAt`. Two phones never overwrite each other's doses.
+- Phones that ran the old Google Sheet version upload all their records on first start.
+  Backups (JSON) from the old version can be loaded in Settings.
+
+## Access
+- Staff sign in with email and password (Supabase Auth). Internet is needed for the first sign-in only.
+- Only emails in the `staff` table can read or write, even if sign-ups are left open.
+- Signing out removes records from that phone (blocked while uploads are pending).
+
+## Admin: adding a staff member
+1. Supabase -> Authentication -> Users -> Add user -> Create new user (email + password, tick "Auto confirm").
+2. SQL Editor: `insert into staff (email, name) values ('them@example.com', 'Their Name');`
+3. Authentication -> Sign In / Providers: turn off "Allow new users to sign up".
+
+## Testing
+Tested in headless Chrome with two simulated phones against the schema in a local Postgres 16
+(wrong password, non-staff account, offline edits on both phones, offline reload, merge, sign out).
+
+## Next steps
+- Host on GitHub Pages so phones can install it.
+- Admin-only deletes (`staff.is_admin` exists but is not enforced yet).
+- Keep the free Supabase project from pausing between camps (scheduled ping).

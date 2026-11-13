@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Camp Pharmacy Records</title>
+<meta name="theme-color" content="#0b6b3a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
   :root { --g:#0b6b3a; --g2:#e7f3ec; --ink:#16211b; --mut:#5d6b63; --line:#d9e0db; --bg:#f5f7f5; --warn:#b3261e; --warnbg:#fdecea; --amber:#8a5a00; --amberbg:#fff4d6; }
   * { box-sizing:border-box; }
@@ -71,7 +75,7 @@
   <button id="setBtn" title="Settings">Settings</button>
 </header>
 <div id="status"><span class="dot"></span><span id="statusText">Starting…</span></div>
-<div id="memwarn" hidden style="background:#fdecea;color:#b3261e;padding:10px 14px;font-weight:600;font-size:14px">This is only a preview: records typed here are NOT kept after you close it. Download the file and open it in Chrome to use it for real.</div>
+<div id="memwarn" hidden style="background:#fdecea;color:#b3261e;padding:10px 14px;font-weight:600;font-size:14px">This is only a preview: records typed here are NOT kept after you close it. Open the app's web link in Chrome to use it for real.</div>
 <main id="app"></main>
 <datalist id="drugs"></datalist>
 
@@ -140,12 +144,18 @@ const Store = {
       if (this.db) return await this.tx('meta', 'readwrite', s => s.put(v, k));
       localStorage.setItem('cp_meta_' + k, JSON.stringify(v));
     } catch (e) { this.mem = true; }
+  },
+  async clearPatients() {
+    if (this.mem) return;
+    try { if (this.db) return await this.tx('patients', 'readwrite', s => s.clear()); localStorage.removeItem('cp_patients'); } catch (e) {}
   }
 };
 
 /* ---------- state ---------- */
 const patients = new Map();
-let S = { url: '', key: '', staff: '', lastSync: 0, lastSyncAt: 0 };
+const SB_URL = 'https://iayenvzflbubhzbjctfx.supabase.co';
+const SB_KEY = 'sb_publishable_ozj-IovD0dHK235k1PNyjg_e35kZcXk'; // public key: safe in the app; the database rules decide access
+let S = { staff: '', lastSync: 0, lastSyncAt: 0, session: null, me: null };
 let view = { name: 'home', q: '' };
 let syncing = false, syncError = '';
 
@@ -187,29 +197,75 @@ async function applyRemote(records) {
   }
   return changed;
 }
-async function call(body) {
-  const r = await fetch(S.url, { method: 'POST', body: JSON.stringify({ ...body, key: S.key }), redirect: 'follow' });
-  const j = await r.json();
-  if (!j.ok) throw new Error(j.error || 'Sync failed');
-  return j;
+/* Supabase: plain fetch calls, no library, so the app keeps working offline */
+class AuthError extends Error {}
+async function sb(path, opt = {}, auth = true, retried = false) {
+  const h = { apikey: SB_KEY, 'Content-Type': 'application/json', ...(opt.headers || {}) };
+  if (auth) h.Authorization = 'Bearer ' + await token();
+  const r = await fetch(SB_URL + path, { ...opt, headers: h });
+  const txt = await r.text(); let j = null; try { j = txt ? JSON.parse(txt) : null; } catch (e) {}
+  if (r.ok) return j;
+  const msg = (j && (j.msg || j.message || j.error_description || j.error)) || 'Error ' + r.status;
+  if (auth && r.status === 401 && !retried) { S.session.expires_at = 0; return sb(path, opt, auth, true); }
+  throw (r.status === 401 || (!auth && r.status === 400)) ? new AuthError(msg) : new Error(msg);
 }
+async function signIn(body, grant) {
+  const j = await sb('/auth/v1/token?grant_type=' + grant, { method: 'POST', body: JSON.stringify(body) }, false);
+  S.session = { access_token: j.access_token, refresh_token: j.refresh_token, expires_at: j.expires_at || Date.now() / 1000 + (j.expires_in || 3600), email: (j.user && j.user.email) || (S.session && S.session.email) };
+  await Store.setMeta('settings', S);
+}
+let refreshing = null;
+async function token() {
+  if (!S.session || S.session.expired) throw new AuthError('Signed out');
+  if (S.session.expires_at - 60 > Date.now() / 1000) return S.session.access_token;
+  if (!refreshing) refreshing = signIn({ refresh_token: S.session.refresh_token }, 'refresh_token').finally(() => { refreshing = null; });
+  try { await refreshing; }
+  catch (e) { if (e instanceof AuthError) { S.session.expired = true; await Store.setMeta('settings', S); } throw e; }
+  return S.session.access_token;
+}
+async function loadMe() {
+  const rows = await sb('/rest/v1/staff?select=name,is_admin&email=eq.' + encodeURIComponent(S.session.email));
+  if (!rows || !rows.length) throw new Error('This account is not on the staff list. Ask the pharmacy admin to add ' + S.session.email);
+  S.me = { email: S.session.email, name: rows[0].name, admin: rows[0].is_admin };
+  if (!S.staff) S.staff = rows[0].name || S.session.email;
+  await Store.setMeta('settings', S);
+}
+async function pull(since) {
+  const out = []; let max = since;
+  for (let off = 0; ; off += 1000) {
+    const rows = await sb(`/rest/v1/patients?select=data,server_ts&server_ts=gt.${since}&order=server_ts.asc,id.asc&limit=1000&offset=${off}`);
+    rows.forEach(r => { out.push(r.data); max = Math.max(max, +r.server_ts); });
+    if (rows.length < 1000) return { records: out, max };
+  }
+}
+const OVERLAP = 120000; // re-read the last 2 minutes each time, so a slow upload from another phone is never skipped
 async function sync(manual) {
-  if (!S.url) { if (manual) { toast('Cloud sync is not set up yet — open Settings'); } return; }
+  if (!S.session) { if (manual) toast('Sign in first'); return; }
+  if (S.session.expired) { if (manual) { toast('Sign in again to sync'); go({ name: 'settings' }); } return; }
   if (syncing) return;
   if (!navigator.onLine) { if (manual) toast('No internet. Records are safe on this device and will sync later.'); showStatus(); return; }
   syncing = true; syncError = ''; showStatus();
   try {
-    let res = await call({ since: S.lastSync || 0, changes: [] });
-    let changed = await applyRemote(res.records);
+    let r = await pull(Math.max(0, (S.lastSync || 0) - OVERLAP)), max = r.max;
+    let changed = await applyRemote(r.records);
     const dirty = [...patients.values()].filter(p => p._dirty);
-    const revs = new Map(dirty.map(p => [p.id, p._rev]));
-    res = await call({ since: res.time, changes: dirty.map(clean) });
-    for (const p of dirty) { const cur = patients.get(p.id); if (cur && cur._rev === revs.get(p.id)) { cur._dirty = false; await Store.put(cur); } }
-    changed = (await applyRemote(res.records)) || changed;
-    S.lastSync = res.time; S.lastSyncAt = Date.now(); await Store.setMeta('settings', S);
+    if (dirty.length) {
+      for (let i = 0; i < dirty.length; i += 50) {
+        const part = dirty.slice(i, i + 50), revs = new Map(part.map(p => [p.id, p._rev]));
+        await sb('/rest/v1/rpc/sync_push', { method: 'POST', body: JSON.stringify({ changes: part.map(clean) }) });
+        for (const p of part) { const cur = patients.get(p.id); if (cur && cur._rev === revs.get(p.id)) { cur._dirty = false; await Store.put(cur); } }
+      }
+      r = await pull(Math.max(0, max - OVERLAP)); max = Math.max(max, r.max); // get back the merged versions
+      changed = (await applyRemote(r.records)) || changed;
+    }
+    S.lastSync = max; S.lastSyncAt = Date.now(); await Store.setMeta('settings', S);
+    if (changed) refreshDrugs();
     if (changed && !document.activeElement.matches('input,textarea,select')) render();
     if (manual) toast('Synced');
-  } catch (e) { syncError = e.message || String(e); if (manual) toast('Sync failed: ' + syncError); }
+  } catch (e) {
+    syncError = e instanceof TypeError ? 'cannot reach the server' : (e.message || String(e));
+    if (manual) toast('Sync failed: ' + syncError);
+  }
   finally { syncing = false; showStatus(); }
 }
 let syncTimer;
@@ -217,19 +273,21 @@ function queueSync() { clearTimeout(syncTimer); syncTimer = setTimeout(() => syn
 window.addEventListener('online', () => sync(false));
 window.addEventListener('offline', showStatus);
 let lastSess = null; setInterval(() => { const k = today() + nowSess(); if (lastSess && k !== lastSess && !document.activeElement.matches('input,textarea,select')) render(); lastSess = k; }, 30000);
-setInterval(() => { if (navigator.onLine && S.url && (dirtyCount() || Date.now() - S.lastSyncAt > 3 * 60000)) sync(false); }, 45000);
+setInterval(() => { if (navigator.onLine && S.session && !S.session.expired && (dirtyCount() || Date.now() - S.lastSyncAt > 3 * 60000)) sync(false); }, 45000);
 
 function showStatus() {
   const el = $('#status'), n = dirtyCount(); let cls = '', t;
   const wait = n ? ` · ${n} record${n > 1 ? 's' : ''} waiting to upload` : '';
   $('#memwarn').hidden = !Store.mem;
   if (syncing) { cls = 'pending'; t = 'Syncing…'; }
-  else if (!S.url) { t = 'Saved on this device only · cloud sync not set up (Settings)'; cls = 'pending'; }
+  else if (!S.session) { t = 'Not signed in'; cls = 'pending'; }
+  else if (S.session.expired) { cls = 'err'; t = 'Signed out — tap here to sign in again and sync' + wait; }
   else if (!navigator.onLine) { cls = 'pending'; t = 'Offline — saved on this device' + wait; }
   else if (syncError) { cls = 'err'; t = 'Sync problem: ' + syncError + wait; }
   else if (n) { cls = 'pending'; t = 'Saved on this device' + wait; }
   else { cls = 'ok'; t = 'All records backed up to cloud' + (S.lastSyncAt ? ' · ' + new Date(S.lastSyncAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''); }
   el.className = cls; $('#statusText').textContent = t;
+  el.onclick = S.session && S.session.expired ? () => go({ name: 'settings' }) : null; el.style.cursor = el.onclick ? 'pointer' : '';
 }
 
 /* ---------- schedule logic ---------- */
@@ -277,6 +335,7 @@ function refreshDrugs() {
 }
 function go(v) { view = v; render(); window.scrollTo(0, 0); }
 function render() {
+  if (!S.session) return renderLogin();
   if (view.name === 'patient') return renderPatient();
   if (view.name === 'settings') return renderSettings();
   renderHome();
@@ -480,67 +539,55 @@ function renderPatient() {
   const foc = $('#pf [name=name]') || $('#rf [name=diagnosis]') || $('#df [name=drug]'); if (foc && !foc.value) foc.focus();
 }
 
-const SCRIPT = `// Camp Pharmacy Records - cloud sync (Google Apps Script)
-const KEY = 'CHANGE-THIS-PASSWORD';   // must match the Sync password in the app
-const COLS = ['State code','Name','Platoon','Allergies','Prescriptions and doses','Server time','Data (do not edit)'];
-
-function doPost(e) {
-  var out;
-  try { out = handle(JSON.parse(e.postData.contents)); } catch (err) { out = { ok: false, error: String(err) }; }
-  return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
+function loginForm(title, note) {
+  return `<form class="card" id="lf" style="max-width:440px;margin:24px auto"><h2>${title}</h2>
+    <div class="fld"><label>Email</label><input name="email" type="email" autocomplete="username" required value="${esc((S.session && S.session.email) || '')}"></div>
+    <div class="fld"><label>Password</label><input name="password" type="password" autocomplete="current-password" required></div>
+    <div class="row" style="margin-top:14px"><button class="btn">Sign in</button></div><p class="mut">${note}</p></form>`;
 }
-function handle(req) {
-  if (req.key !== KEY) return { ok: false, error: 'Wrong sync password' };
-  var lock = LockService.getScriptLock(); lock.waitLock(25000);
-  try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sh = ss.getSheetByName('Records') || ss.insertSheet('Records');
-    if (sh.getLastRow() === 0) { sh.appendRow(COLS); sh.setFrozenRows(1); }
-    var now = Date.now(), last = sh.getLastRow();
-    var rows = last > 1 ? sh.getRange(2, 1, last - 1, 7).getValues() : [];
-    var index = {}, pulled = [], since = Number(req.since) || 0;
-    rows.forEach(function (r, i) { index[idOf(r[0])] = i; if (Number(r[5]) > since) pulled.push(r[6]); });
-    var next = rows.length;
-    (req.changes || []).forEach(function (p) {
-      var row = [[p.deleted ? p.code + ' (deleted)' : p.code, p.name || '', p.platoon || '', p.allergies || '', summary(p), now, JSON.stringify(p)]];
-      var i = index[p.id]; if (i === undefined) { i = next++; index[p.id] = i; }
-      sh.getRange(i + 2, 1, 1, 7).setNumberFormat('@').setValues(row);
-    });
-    return { ok: true, time: now, records: pulled };
-  } finally { lock.releaseLock(); }
+function bindLogin(after) {
+  $('#lf').onsubmit = async ev => {
+    ev.preventDefault(); const f = Object.fromEntries(new FormData($('#lf'))), btn = $('#lf button');
+    btn.disabled = true; btn.textContent = 'Signing in…';
+    try {
+      await signIn({ email: f.email.trim(), password: f.password }, 'password');
+      try { await loadMe(); } catch (e) { S.session = null; await Store.setMeta('settings', S); throw e; }
+      toast('Signed in as ' + S.me.name); syncError = ''; after(); sync(false);
+    } catch (e) {
+      toast(e instanceof TypeError ? 'No internet. Signing in needs a connection the first time.' : 'Sign in failed: ' + e.message);
+      btn.disabled = false; btn.textContent = 'Sign in';
+    }
+  };
 }
-function idOf(code) { return String(code).replace(' (deleted)', '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
-function summary(p) {
-  var es = (p.entries || []).filter(function (e) { return !e.deleted; });
-  var of = function (t) { return es.filter(function (e) { return e.t === t; }); };
-  return of('rx').sort(function (a, b) { return a.date < b.date ? 1 : -1; }).map(function (r) {
-    return r.date + ' Dx: ' + (r.diagnosis || '') + '\\n' + of('drug').filter(function (d) { return d.rxId === r.id; }).map(function (d) {
-      var total = (d.times || []).length * (Number(d.days) || 0);
-      var given = of('dose').filter(function (x) { return x.drugId === d.id; }).length;
-      return '  - ' + d.drug + ' ' + (d.dose || '') + ' [' + (d.times || []).join('/') + ' x ' + d.days + ' days] taken ' + given + ' of ' + total + (d.stopped ? ' (stopped)' : '');
-    }).join('\\n');
-  }).join('\\n').slice(0, 45000);
-}`;
-
+function renderLogin() {
+  $('#app').innerHTML = loginForm('Staff sign in', 'Needs internet this once. After that, this phone keeps working offline. No account? Ask the pharmacy admin.');
+  bindLogin(() => go({ name: 'home', q: '' })); showStatus();
+}
+let installEvt = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; });
 function renderSettings() {
+  const n = dirtyCount(), me = S.me || {};
   $('#app').innerHTML = `<div class="row" style="margin-bottom:10px"><button class="btn ghost" id="back">‹ Search</button></div>
-  <form class="card" id="sf"><h2>Cloud sync</h2>
-    <div class="grid"><div class="wide"><label>Web app URL (from Google Apps Script)</label><input name="url" value="${esc(S.url)}" placeholder="https://script.google.com/macros/s/…/exec"></div>
-    <div><label>Sync password</label><input name="key" value="${esc(S.key)}"></div><div><label>Your name (recorded on each dose you give)</label><input name="staff" value="${esc(S.staff)}"></div></div>
-    <div class="row" style="margin-top:12px"><button class="btn">Save and sync</button></div>
-    <details style="margin-top:14px"><summary>How to set up cloud sync (once, about 5 minutes)</summary>
-    <ol><li>On a computer, sign in to the Google account that should hold the records and open <b>sheets.new</b>. Name the sheet.</li>
-    <li>Menu: <b>Extensions → Apps Script</b>. Delete what is there and paste the script below.</li>
-    <li>On line 2, replace CHANGE-THIS-PASSWORD with a password of your own.</li>
-    <li><b>Deploy → New deployment → Web app</b>. Execute as: <b>Me</b>. Who has access: <b>Anyone</b>. Deploy and approve the permission prompt.</li>
-    <li>Copy the <b>Web app URL</b> into the box above, type the same password, and press Save and sync.</li>
-    <li>Do step 5 on every device that should share the records.</li></ol>
-    <button type="button" class="btn ghost" id="copyScript">Copy script</button><pre>${esc(SCRIPT)}</pre></details></form>
-  <div class="card"><h2>Backup on this device</h2><p class="mut">Download a copy of all records, or load one from another device. Loading merges; it never wipes existing records.</p>
+  ${S.session.expired ? loginForm('Sign in again to sync', 'Your records are safe on this phone. Sign in to upload them.') : ''}
+  <form class="card" id="sf"><h2>Account</h2>
+    <p style="margin-top:0">Signed in as <b>${esc(me.name || '')}</b> <span class="mut">${esc(S.session.email || '')}${me.admin ? ' · admin' : ''}</span></p>
+    <div class="grid"><div class="wide"><label>Name recorded on each dose you give</label><input name="staff" value="${esc(S.staff)}"></div></div>
+    <div class="row" style="margin-top:12px"><button class="btn">Save</button><span style="flex:1"></span><button type="button" class="btn danger" id="out">Sign out</button></div></form>
+  ${installEvt ? `<div class="card"><h2>Install</h2><p class="mut">Put the app on the home screen so it opens like an app, even offline.</p><button class="btn" id="inst">Install app</button></div>` : ''}
+  <div class="card"><h2>Backup on this device</h2><p class="mut">Download a copy of all records, or load one from another device (also works for backups from the old Google Sheet version). Loading merges; it never wipes existing records.</p>
     <div class="row"><button class="btn ghost" id="exp">Download backup</button><button class="btn ghost" id="csv">Download as spreadsheet (CSV)</button><label class="btn ghost" style="margin:0;color:var(--g);font-size:16px;border:1px solid var(--g);border-radius:8px;padding:10px 14px;cursor:pointer">Load backup<input type="file" id="imp" accept=".json,application/json" hidden></label></div></div>`;
   $('#back').onclick = () => go({ name: 'home', q: '' });
-  $('#sf').onsubmit = async ev => { ev.preventDefault(); const f = Object.fromEntries(new FormData($('#sf'))); const urlChanged = f.url.trim() !== S.url; Object.assign(S, { url: f.url.trim(), key: f.key, staff: f.staff.trim() }); if (urlChanged) { S.lastSync = 0; for (const p of patients.values()) { p._dirty = true; await Store.put(p); } } await Store.setMeta('settings', S); toast('Settings saved'); showStatus(); sync(true); };
-  $('#copyScript').onclick = async () => { try { await navigator.clipboard.writeText(SCRIPT); toast('Script copied'); } catch (e) { const r = document.createRange(); r.selectNodeContents($('pre')); getSelection().removeAllRanges(); getSelection().addRange(r); toast('Script selected — copy it'); } };
+  if ($('#lf')) bindLogin(() => { S.session.expired = false; render(); });
+  $('#sf').onsubmit = async ev => { ev.preventDefault(); S.staff = new FormData($('#sf')).get('staff').trim(); await Store.setMeta('settings', S); toast('Saved'); };
+  $('#out').onclick = async () => {
+    if (dirtyCount()) return toast(`${n} record${n > 1 ? 's are' : ' is'} not uploaded yet. Sync first, then sign out.`);
+    if (!await ask('Sign out? Records will be removed from this phone (they stay safe in the cloud).', 'Sign out')) return;
+    try { await sb('/auth/v1/logout', { method: 'POST' }); } catch (e) {}
+    patients.clear(); await Store.clearPatients();
+    S = { staff: '', lastSync: 0, lastSyncAt: 0, session: null, me: null, backend: S.backend }; await Store.setMeta('settings', S);
+    go({ name: 'home', q: '' }); showStatus();
+  };
+  if ($('#inst')) $('#inst').onclick = async () => { installEvt.prompt(); await installEvt.userChoice; installEvt = null; render(); };
   const dl = (name, text, type) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; document.body.appendChild(a); a.click(); a.remove(); };
   $('#exp').onclick = () => dl(`pharmacy-backup-${today()}.json`, JSON.stringify([...patients.values()].map(clean)), 'application/json');
   $('#csv').onclick = () => {
@@ -558,13 +605,20 @@ function renderSettings() {
 
 /* ---------- start ---------- */
 $('#home').onclick = () => go({ name: 'home', q: '' });
-$('#setBtn').onclick = () => go({ name: 'settings' });
 $('#syncBtn').onclick = () => sync(true);
+$('#setBtn').onclick = () => go({ name: S.session ? 'settings' : 'home' });
+if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 (async () => {
   await Store.open();
   (await Store.all()).forEach(p => patients.set(p.id, p));
   S = Object.assign(S, (await Store.getMeta('settings')) || {});
+  if (S.backend !== 'supabase') { // first start after moving from Google Sheets: upload everything to the new database
+    delete S.url; delete S.key; S.backend = 'supabase'; S.lastSync = 0;
+    for (const p of patients.values()) { p._dirty = true; await Store.put(p); }
+    await Store.setMeta('settings', S);
+  }
   refreshDrugs(); render(); showStatus(); sync(false);
+  if (S.session && !S.session.expired && navigator.onLine) loadMe().catch(() => {});
 })();
 </script>
 </body>
