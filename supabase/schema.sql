@@ -34,11 +34,24 @@ create policy "staff read patients" on public.patients
   for select to authenticated using (public.is_staff());
 -- No insert/update/delete policies: all writes go through sync_push below.
 
+-- 2b. Camp marker. `epoch` changes each time the admin deletes all records at the end of a camp.
+--     A phone that sees a new value throws away its own copy, so old records are not uploaded again.
+create table if not exists public.camp (
+  id    int primary key default 1 check (id = 1),
+  epoch bigint not null default 0
+);
+insert into public.camp (id) values (1) on conflict (id) do nothing;
+alter table public.camp enable row level security;
+drop policy if exists "staff read camp" on public.camp;
+create policy "staff read camp" on public.camp
+  for select to authenticated using (public.is_staff());
+
 -- 3. Upload changes. Merges each record with what is already stored, so two
 --    phones editing the same patient never wipe out each other's entries:
 --    patient details: newest updatedAt wins; entries (rx/drug/dose): merged one by one, newest updatedAt wins.
 --    Only admins may delete a patient or a prescription: such a change from anyone else is undone here.
-create or replace function public.sync_push(changes jsonb) returns bigint
+drop function if exists public.sync_push(jsonb);
+create or replace function public.sync_push(changes jsonb, client_epoch bigint default null) returns bigint
 language plpgsql security definer set search_path = public as $$
 declare
   c jsonb; old jsonb; merged jsonb; ents jsonb; pid text; adm boolean;
@@ -46,6 +59,9 @@ declare
 begin
   select is_admin into adm from staff where lower(email) = lower(auth.jwt() ->> 'email');
   if adm is null then raise exception 'This account is not on the staff list'; end if;
+  if client_epoch is not null and client_epoch <> (select k.epoch from camp k where k.id = 1) then
+    raise exception 'Records were cleared for a new camp. Sync again.';
+  end if;
   for c in select * from jsonb_array_elements(coalesce(changes, '[]'::jsonb)) loop
     pid := c ->> 'id';
     if coalesce(pid, '') = '' then continue; end if;
@@ -79,11 +95,28 @@ begin
   return ts;
 end $$;
 
--- Signed-in users may read (the policies above still limit this to staff). No write grants: writes go through sync_push.
-grant select on public.staff, public.patients to authenticated;
+-- 3b. End of camp: delete every patient record. Admins only; the word DELETE must be passed.
+create or replace function public.wipe_all(confirm text) returns bigint
+language plpgsql security definer set search_path = public as $$
+declare
+  adm boolean;
+  ts bigint := (extract(epoch from clock_timestamp()) * 1000)::bigint;
+begin
+  select is_admin into adm from staff where lower(email) = lower(auth.jwt() ->> 'email');
+  if adm is not true then raise exception 'Only an admin can delete all records'; end if;
+  if confirm is distinct from 'DELETE' then raise exception 'Not confirmed'; end if;
+  delete from patients where id is not null;
+  update camp set epoch = ts where id = 1;
+  return ts;
+end $$;
 
-revoke all on function public.sync_push(jsonb) from public, anon;
-grant execute on function public.sync_push(jsonb) to authenticated;
+-- Signed-in users may read (the policies above still limit this to staff). No write grants: writes go through sync_push.
+grant select on public.staff, public.patients, public.camp to authenticated;
+
+revoke all on function public.sync_push(jsonb, bigint) from public, anon;
+grant execute on function public.sync_push(jsonb, bigint) to authenticated;
+revoke all on function public.wipe_all(text) from public, anon;
+grant execute on function public.wipe_all(text) to authenticated;
 revoke all on function public.is_staff() from public, anon;
 grant execute on function public.is_staff() to authenticated;
 

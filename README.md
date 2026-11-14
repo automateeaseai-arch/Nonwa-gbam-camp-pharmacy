@@ -50,6 +50,16 @@ Each patient is one record: `{id, code, name, sex, platoon, phone, allergies, up
 2. SQL Editor: `insert into staff (email, name) values ('them@example.com', 'Their Name');`
 3. Authentication -> Sign In / Providers: turn off "Allow new users to sign up".
 
+## Reports
+Home -> Reports (or Settings -> Reports). Pick a start and end date; everything is counted by prescription date.
+Shows statistics (patients, prescriptions, doses given/missed, diagnoses, drugs, sex, platoon, per day) and the full record.
+"Save as PDF / Print" uses the browser's print screen, so it works offline and needs no library.
+
+## End of camp
+Settings -> End of camp -> Delete all records (admins only). A backup must be downloaded first and the word DELETE typed.
+`wipe_all` deletes every row in `patients` and changes `camp.epoch`. Each phone compares that value on its next sync
+and clears its own copy; `sync_push` refuses uploads that carry an old value, so old records cannot come back.
+
 ## Keeping the database awake
 Supabase pauses free projects after about a week without activity. `.github/workflows/keepalive.yml`
 reads the `ping` view twice a week. If it fails, GitHub emails the repository owner.

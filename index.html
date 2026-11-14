@@ -71,6 +71,11 @@
   h2 { font-size:16px; margin:0 0 10px; }
   .stats { display:flex; gap:18px; flex-wrap:wrap; }
   .stats b { font-size:20px; display:block; }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; } th, td { border-bottom:1px solid var(--line); padding:5px 6px; text-align:left; vertical-align:top; } th { color:var(--mut); font-weight:600; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px; margin:10px 0; } .tiles div { border:1px solid var(--line); border-radius:8px; padding:8px 10px; } .tiles b { font-size:20px; display:block; }
+  .two { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:4px 22px; } h3 { font-size:14.5px; margin:16px 0 4px; } .scroll { overflow-x:auto; }
+  @media print { header, #status, #memwarn, #upd, #splash, .noprint, .toast { display:none !important; } body { background:#fff; font-size:12px; } main { max-width:none; padding:0; }
+    .card { border:0; padding:0; } table { font-size:11px; } td .mut { font-size:inherit; } tr, .tiles div { break-inside:avoid; } .scroll { overflow:visible; } }
   pre { background:#f0f3f1; padding:10px; border-radius:8px; overflow:auto; font-size:12px; max-height:220px; }
   ol { padding-left:20px; margin:8px 0; } li { margin-bottom:5px; }
   .toast { position:fixed; left:50%; bottom:18px; transform:translateX(-50%); background:#16211b; color:#fff; padding:10px 16px; border-radius:20px; font-size:14px; z-index:9; max-width:90%; }
@@ -106,6 +111,18 @@ function ask(msg, okLabel) {
     o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:20;padding:20px';
     o.innerHTML = `<div class="card" style="max-width:360px;margin:0"><p style="margin-top:0">${esc(msg)}</p><div class="row" style="justify-content:flex-end"><button class="btn ghost" data-a="0">Cancel</button><button class="btn danger" data-a="1">${esc(okLabel || 'Delete')}</button></div></div>`;
     o.onclick = e => { const a = e.target.dataset && e.target.dataset.a; if (a !== undefined || e.target === o) { o.remove(); res(a === '1'); } };
+    document.body.appendChild(o);
+  });
+}
+function askTyped(msg, word, okLabel) { // for actions that cannot be undone: the word must be typed
+  return new Promise(res => {
+    const o = document.createElement('div');
+    o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:20;padding:20px';
+    o.innerHTML = `<div class="card" style="max-width:380px;margin:0"><p style="margin-top:0">${esc(msg)}</p><label>Type ${word} to confirm</label><input id="tw" autocomplete="off" autocapitalize="characters" spellcheck="false">
+      <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn ghost" data-a="0">Cancel</button><button class="btn danger" data-a="1">${esc(okLabel)}</button></div></div>`;
+    o.onclick = e => { const a = e.target.dataset && e.target.dataset.a;
+      if (a === '1') { if (o.querySelector('#tw').value.trim().toUpperCase() !== word) return toast('Type ' + word + ' to confirm'); o.remove(); res(true); }
+      else if (a === '0' || e.target === o) { o.remove(); res(false); } };
     document.body.appendChild(o);
   });
 }
@@ -259,13 +276,20 @@ async function sync(manual) {
   if (!navigator.onLine) { if (manual) toast('No internet. Records are safe on this device and will sync later.'); showStatus(); return; }
   syncing = true; syncError = ''; showStatus();
   try {
+    // Has the admin cleared all records for a new camp since this phone last synced? Then clear them here too.
+    let epoch = null, changed = false;
+    try { const c = await sb('/rest/v1/camp?select=epoch'); if (c && c[0]) epoch = +c[0].epoch; } catch (e) { if (e instanceof AuthError) throw e; }
+    if (epoch !== null) {
+      if (S.epoch != null && S.epoch !== epoch) { patients.clear(); await Store.clearPatients(); S.lastSync = 0; changed = true; toast('All records were cleared by the admin for a new camp'); }
+      S.epoch = epoch;
+    }
     let r = await pull(Math.max(0, (S.lastSync || 0) - OVERLAP)), max = r.max;
-    let changed = await applyRemote(r.records);
+    changed = (await applyRemote(r.records)) || changed;
     const dirty = [...patients.values()].filter(p => p._dirty);
     if (dirty.length) {
       for (let i = 0; i < dirty.length; i += 50) {
         const part = dirty.slice(i, i + 50), revs = new Map(part.map(p => [p.id, p._rev]));
-        await sb('/rest/v1/rpc/sync_push', { method: 'POST', body: JSON.stringify({ changes: part.map(clean) }) });
+        await sb('/rest/v1/rpc/sync_push', { method: 'POST', body: JSON.stringify(epoch === null ? { changes: part.map(clean) } : { changes: part.map(clean), client_epoch: epoch }) });
         for (const p of part) { const cur = patients.get(p.id); if (cur && cur._rev === revs.get(p.id)) { cur._dirty = false; await Store.put(cur); } }
       }
       r = await pull(Math.max(0, max - OVERLAP)); max = Math.max(max, r.max); // get back the merged versions
@@ -351,6 +375,7 @@ function render() {
   if (!S.session) return renderLogin();
   if (view.name === 'patient') return renderPatient();
   if (view.name === 'settings') return renderSettings();
+  if (view.name === 'report') return renderReport();
   renderHome();
 }
 function search(q) {
@@ -384,8 +409,9 @@ function renderHome() {
       ${list.map(x => `<button class="res" data-id="${esc(x.p.id)}"><span><span class="code">${esc(x.p.code)}</span> &nbsp;${esc(x.p.name || '')}<br><span class="mut">${x.ds.map(z => (z.done ? '✓ ' : '') + esc(z.d.drug)).join(', ')}</span></span>
         <span class="badge ${x.pending ? (vs < cur ? 'miss' : 'due') : 'ok'}">${x.pending ? (vs < cur ? x.pending + ' missed' : x.pending + ' to give') : '✓ given'}</span></button>`).join('')}
     </div>
-    <div class="card stats"><div><b>${all.length}</b><span class="mut">patients on record</span></div><div><b>${all.filter(p => items(p, 'drug').some(d => status(p, d).left)).length}</b><span class="mut">currently on drugs</span></div></div>`;
+    <div class="card stats"><div><b>${all.length}</b><span class="mut">patients on record</span></div><div><b>${all.filter(p => items(p, 'drug').some(d => status(p, d).left)).length}</b><span class="mut">currently on drugs</span></div><span style="flex:1"></span><button class="btn ghost" id="toRep" style="align-self:center">Reports</button></div>`;
   const q = $('#q');
+  $('#toRep').onclick = () => go({ name: 'report' });
   const open = () => document.querySelectorAll('.res').forEach(b => b.onclick = () => go({ name: 'patient', id: b.dataset.id }));
   const draw = () => {
     view.q = q.value; const res = search(q.value); const qn = norm(q.value);
@@ -593,6 +619,8 @@ function renderSettings() {
     <div class="grid"><div class="wide"><label>Name recorded on each dose you give</label><input name="staff" value="${esc(S.staff)}"></div></div>
     <div class="row" style="margin-top:12px"><button class="btn">Save</button><span style="flex:1"></span><button type="button" class="btn danger" id="out">Sign out</button></div></form>
   ${installEvt ? `<div class="card"><h2>Install</h2><p class="mut">Put the app on the home screen so it opens like an app, even offline.</p><button class="btn" id="inst">Install app</button></div>` : ''}
+  <div class="card"><h2>Reports</h2><p class="mut">Statistics and the full record for any period, to view or save as a PDF.</p><button class="btn ghost" id="toRep">Open reports</button></div>
+  ${isAdmin() ? `<div class="card" style="border-color:var(--warn)"><h2>End of camp</h2><p class="mut">Deletes every patient record from the cloud and from every phone, ready for the next camp. This cannot be undone. First download the backup below and save the PDF report.</p><button class="btn danger" id="wipe">Delete all records</button></div>` : ''}
   <div class="card"><h2>Backup on this device</h2><p class="mut">Download a copy of all records, or load one from another device (also works for backups from the old Google Sheet version). Loading merges; it never wipes existing records.</p>
     <div class="row"><button class="btn ghost" id="exp">Download backup</button><button class="btn ghost" id="csv">Download as spreadsheet (CSV)</button><label class="btn ghost" style="margin:0;color:var(--g);font-size:16px;border:1px solid var(--g);border-radius:8px;padding:10px 14px;cursor:pointer">Load backup<input type="file" id="imp" accept=".json,application/json" hidden></label></div></div>`;
   $('#back').onclick = () => go({ name: 'home', q: '' });
@@ -608,7 +636,9 @@ function renderSettings() {
   };
   if ($('#inst')) $('#inst').onclick = async () => { installEvt.prompt(); await installEvt.userChoice; installEvt = null; render(); };
   const dl = (name, text, type) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; document.body.appendChild(a); a.click(); a.remove(); };
-  $('#exp').onclick = () => dl(`pharmacy-backup-${today()}.json`, JSON.stringify([...patients.values()].map(clean)), 'application/json');
+  $('#toRep').onclick = () => go({ name: 'report' });
+  if ($('#wipe')) $('#wipe').onclick = wipeAll;
+  $('#exp').onclick = () => { backedUp = true; dl(`pharmacy-backup-${today()}.json`, JSON.stringify([...patients.values()].map(clean)), 'application/json'); };
   $('#csv').onclick = () => {
     const c = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
     const rows = [['State code', 'Name', 'Sex', 'Platoon', 'Phone', 'Allergies', 'Prescription date', 'Diagnosis', 'Drug', 'Dose', 'When', 'Days', 'Total doses', 'Taken', 'Missed', 'Left', 'Status']];
@@ -620,6 +650,61 @@ function renderSettings() {
     dl(`pharmacy-records-${today()}.csv`, '﻿' + rows.map(r => r.map(c).join(',')).join('\r\n'), 'text/csv');
   };
   $('#imp').onchange = async ev => { const file = ev.target.files[0]; if (!file) return; try { const arr = JSON.parse(await file.text()); if (!Array.isArray(arr)) throw 0; await applyRemote(arr); for (const p of patients.values()) { p._dirty = true; await Store.put(p); } refreshDrugs(); showStatus(); queueSync(); toast(`Backup loaded (${arr.length} records)`); } catch (e) { toast('That file is not a valid backup'); } };
+}
+
+let backedUp = false; // set when a backup is downloaded in this session; required before deleting everything
+async function wipeAll() {
+  if (!navigator.onLine) return toast('This needs internet');
+  if (!backedUp) return toast('Download the backup first (button below)');
+  await sync(false);
+  if (dirtyCount() || syncError) return toast('Could not sync this phone first. Try again when the connection is better.');
+  const n = live().length;
+  if (!await askTyped(`Delete all ${n} patient record${n === 1 ? '' : 's'} for good, from the cloud and every phone? Records not yet uploaded from other phones will be lost.`, 'DELETE', 'Delete everything')) return;
+  try {
+    const ts = await sb('/rest/v1/rpc/wipe_all', { method: 'POST', body: JSON.stringify({ confirm: 'DELETE' }) });
+    patients.clear(); await Store.clearPatients(); S.epoch = +ts; S.lastSync = 0; await Store.setMeta('settings', S);
+    backedUp = false; refreshDrugs(); toast('All records deleted'); go({ name: 'home', q: '' });
+  } catch (e) { toast('Could not delete: ' + (e instanceof TypeError ? 'cannot reach the server' : e.message)); }
+}
+
+/* ---------- reports ---------- */
+// Everything in a report is chosen by prescription date: a visit counts if its prescription is dated inside the period.
+function reportData(from, to) {
+  const rows = [], ids = new Set();
+  live().forEach(p => items(p, 'rx').filter(r => r.date >= from && r.date <= to).forEach(r => {
+    ids.add(p.id); rows.push({ p, r, ds: items(p, 'drug').filter(d => d.rxId === r.id).map(d => ({ d, s: status(p, d) })) });
+  }));
+  rows.sort((a, b) => a.r.date.localeCompare(b.r.date) || a.p.id.localeCompare(b.p.id));
+  const count = (list, key) => { const m = new Map(); list.forEach(x => { const k = String(key(x) || '').trim(); if (!k) return; const e = m.get(k.toLowerCase()) || { label: k, n: 0 }; e.n++; m.set(k.toLowerCase(), e); }); return [...m.values()].sort((a, b) => b.n - a.n || a.label.localeCompare(b.label)); };
+  const people = [...ids].map(id => patients.get(id)), all = rows.flatMap(x => x.ds), sum = k => all.reduce((n, x) => n + x.s[k], 0);
+  return { rows, patients: people.length, visits: rows.length, drugs: all.length, taken: sum('taken'), missed: sum('missed'), left: sum('left'),
+    allergy: people.filter(p => p.allergies).length, dx: count(rows, x => x.r.diagnosis), top: count(all, x => x.d.drug),
+    sex: count(people, p => ({ M: 'Male', F: 'Female' })[p.sex] || 'Not recorded'), platoon: count(people, p => p.platoon ? 'Platoon ' + p.platoon : 'Not recorded'),
+    days: count(rows, x => x.r.date).sort((a, b) => a.label.localeCompare(b.label)) };
+}
+function renderReport() {
+  const dates = live().flatMap(p => items(p, 'rx').map(r => r.date)).filter(Boolean).sort();
+  if (!view.from) view.from = dates[0] || today();
+  if (!view.to) view.to = today();
+  const from = view.from <= view.to ? view.from : view.to, to = view.from <= view.to ? view.to : view.from;
+  const R = reportData(from, to), pct = R.taken + R.missed ? Math.round(100 * R.taken / (R.taken + R.missed)) + '%' : '—';
+  const tbl = (title, list, head) => `<div><h3>${title}</h3>${list.length ? `<table><tr><th>${head}</th><th style="text-align:right">Number</th></tr>${list.map(x => `<tr><td>${esc(x.label)}</td><td style="text-align:right">${x.n}</td></tr>`).join('')}</table>` : '<p class="mut">None</p>'}</div>`;
+  $('#app').innerHTML = `<div class="row noprint" style="margin-bottom:10px"><button class="btn ghost" id="back">‹ Search</button></div>
+    <div class="card noprint"><h2>Report period</h2><div class="grid"><div><label>From</label><input type="date" id="rf1" value="${esc(view.from)}"></div><div><label>To</label><input type="date" id="rf2" value="${esc(view.to)}"></div></div>
+      <div class="row" style="margin-top:12px"><button class="btn" id="pdf">Save as PDF / Print</button><span class="mut">In the next screen choose “Save as PDF”.</span></div></div>
+    <div class="card"><h2 style="font-size:18px;margin-bottom:2px">Nonwa Gbam NYSC Camp Pharmacy</h2><div><b>Records report: ${fmtDate(from)} to ${fmtDate(to)}</b></div>
+      <div class="mut">Prepared ${fmtDate(today())}${S.staff ? ' by ' + esc(S.staff) : ''} · counted by prescription date</div>
+      <div class="tiles"><div><b>${R.patients}</b>patients seen</div><div><b>${R.visits}</b>prescriptions</div><div><b>${R.drugs}</b>drugs prescribed</div><div><b>${R.taken}</b>doses given</div><div><b>${R.missed}</b>doses missed</div><div><b>${R.left}</b>doses still to come</div><div><b>${pct}</b>of due doses given</div><div><b>${R.allergy}</b>patients with an allergy</div></div>
+      <div class="two">${tbl('Diagnoses', R.dx, 'Diagnosis')}${tbl('Drugs prescribed', R.top, 'Drug')}${tbl('Patients by sex', R.sex, 'Sex')}${tbl('Patients by platoon', R.platoon, 'Platoon')}${tbl('Prescriptions per day', R.days.map(x => ({ label: fmtDate(x.label), n: x.n })), 'Date')}</div>
+      <h3>Full record</h3>${R.rows.length ? `<div class="scroll"><table><tr><th>Date</th><th>Patient</th><th>Diagnosis</th><th>Drugs and doses</th></tr>${R.rows.map(x => `<tr><td style="white-space:nowrap">${fmtDate(x.r.date)}</td>
+        <td><b>${esc(x.p.code)}</b><br>${esc(x.p.name)}<br><span class="mut">${[x.p.sex, x.p.platoon && 'Platoon ' + x.p.platoon, x.p.phone].filter(Boolean).map(esc).join(' · ')}</span>${x.p.allergies ? `<br><span style="color:var(--warn)">Allergy: ${esc(x.p.allergies)}</span>` : ''}</td>
+        <td>${esc(x.r.diagnosis)}${x.r.by ? `<br><span class="mut">by ${esc(x.r.by)}</span>` : ''}</td>
+        <td>${x.ds.map(z => `${esc(z.d.drug)}${z.d.dose ? ' ' + esc(z.d.dose) : ''} <span class="mut">(${timesOf(z.d).map(i => SESS[i]).join('/')} × ${esc(z.d.days)} day${z.d.days == 1 ? '' : 's'})</span><br><span class="mut">given ${z.s.taken} of ${z.s.total}${z.s.missed ? ', missed ' + z.s.missed : ''}${z.d.stopped ? ', stopped' : z.s.left ? ', ongoing' : ', finished'}</span>`).join('<br>') || '<span class="mut">No drugs</span>'}</td></tr>`).join('')}</table></div>` : '<p class="mut">No prescriptions in this period.</p>'}
+    </div>`;
+  $('#back').onclick = () => go({ name: 'home', q: '' });
+  $('#rf1').onchange = e => { if (e.target.value) { view.from = e.target.value; render(); } };
+  $('#rf2').onchange = e => { if (e.target.value) { view.to = e.target.value; render(); } };
+  $('#pdf').onclick = () => { const t = document.title; document.title = `Pharmacy report ${from} to ${to}`; window.print(); setTimeout(() => { document.title = t; }, 1000); };
 }
 
 /* ---------- start ---------- */
