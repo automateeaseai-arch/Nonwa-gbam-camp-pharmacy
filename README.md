@@ -26,7 +26,7 @@ Each patient is one record: `{id, code, name, sex, platoon, phone, allergies, up
 
 ## Files
 - `index.html` the whole app (no build step).
-- `sw.js`, `manifest.webmanifest`, `icon*` make it an installable app that opens offline.
+- `sw.js`, `manifest.webmanifest`, `icon*` make it an installable app that opens offline. `splash.jpg` is the loading page.
 - `supabase/schema.sql` database tables, access rules and the merge function. Run once in the Supabase SQL Editor.
 
 ## Storage and sync
