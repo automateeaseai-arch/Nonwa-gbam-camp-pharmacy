@@ -1,0 +1,32 @@
+# Supabase pauses free projects after about a week with no activity.
+# This asks the database a tiny question twice a week so it stays awake between camps.
+name: Keep database awake
+
+on:
+  schedule:
+    - cron: '23 5 * * 1,4'   # Mondays and Thursdays, 05:23 UTC
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase
+        env:
+          SB_URL: https://iayenvzflbubhzbjctfx.supabase.co
+          SB_KEY: sb_publishable_ozj-IovD0dHK235k1PNyjg_e35kZcXk   # public key, same one the app uses
+        run: |
+          code=$(curl -sS -o reply.txt -w '%{http_code}' --retry 3 --retry-delay 20 --max-time 60 \
+            -H "apikey: $SB_KEY" "$SB_URL/rest/v1/ping?select=ok")
+          echo "HTTP $code: $(cat reply.txt)"
+          test "$code" = "200"
+      # GitHub switches off scheduled jobs in repositories with no activity for 60 days.
+      # Re-enabling the workflow on each run resets that timer.
+      - name: Keep this schedule switched on
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/keepalive.yml/enable"

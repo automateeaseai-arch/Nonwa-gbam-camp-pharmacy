@@ -48,6 +48,11 @@ Each patient is one record: `{id, code, name, sex, platoon, phone, allergies, up
 2. SQL Editor: `insert into staff (email, name) values ('them@example.com', 'Their Name');`
 3. Authentication -> Sign In / Providers: turn off "Allow new users to sign up".
 
+## Keeping the database awake
+Supabase pauses free projects after about a week without activity. `.github/workflows/keepalive.yml`
+reads the `ping` view twice a week. If it fails, GitHub emails the repository owner.
+If the project does get paused: Supabase dashboard -> Restore project. Phones keep working offline meanwhile.
+
 ## Testing
 Tested in headless Chrome with two simulated phones against the schema in a local Postgres 16
 (wrong password, non-staff account, offline edits on both phones, offline reload, merge, sign out).
@@ -55,4 +60,3 @@ Tested in headless Chrome with two simulated phones against the schema in a loca
 ## Next steps
 - Host on GitHub Pages so phones can install it.
 - Admin-only deletes (`staff.is_admin` exists but is not enforced yet).
-- Keep the free Supabase project from pausing between camps (scheduled ping).

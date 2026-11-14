@@ -72,7 +72,12 @@ grant execute on function public.sync_push(jsonb) to authenticated;
 revoke all on function public.is_staff() from public, anon;
 grant execute on function public.is_staff() to authenticated;
 
--- 4. Add your staff (edit and run; one line per person):
+-- 4. Keep-awake check. Holds no data; .github/workflows/keepalive.yml reads it twice a week
+--    so the free project is not paused for inactivity.
+create or replace view public.ping as select 1 as ok;
+grant select on public.ping to anon, authenticated;
+
+-- 5. Add your staff (edit and run; one line per person):
 -- insert into public.staff (email, name, is_admin) values
 --   ('you@example.com', 'Pharm. Your Name', true),
 --   ('colleague@example.com', 'Colleague Name', false)
