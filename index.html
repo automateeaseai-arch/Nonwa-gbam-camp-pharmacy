@@ -22,8 +22,8 @@
   .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:12px; }
   input, select, textarea { width:100%; font:inherit; padding:10px 11px; border:1px solid #b9c4bd; border-radius:8px; background:#fff; color:var(--ink); }
   input:focus, select:focus, textarea:focus { outline:2px solid var(--g); outline-offset:1px; }
-  #q { font-size:22px; padding:14px; letter-spacing:.5px; text-transform:uppercase; }
-  #q::placeholder { text-transform:none; letter-spacing:0; font-size:17px; }
+  #q, #qb { font-size:22px; padding:12px 10px; letter-spacing:1px; text-transform:uppercase; font-family:ui-monospace,Consolas,monospace; }
+  #qb, .batch { width:4.4em; flex:none; } .codebox { display:flex; align-items:center; gap:6px; } .codebox b { font-size:22px; }
   label { display:block; font-size:13px; color:var(--mut); margin:0 0 3px; }
   .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
   .wide { grid-column:1/-1; }
@@ -376,10 +376,6 @@ const defBatch = () => { // the batch this phone used last, or the most common o
   const n = {}; live().forEach(p => { const m = p.id.match(/^RV(\d{2}[A-Z])\d+$/); if (m) n[m[1]] = (n[m[1]] || 0) + 1; });
   return Object.keys(n).sort((a, b) => n[b] - n[a])[0] || '';
 };
-function parseCode(q) { // "1234", "26C/1234" or "RV/26C/1234" -> { batch, num }; anything else (a name) -> null
-  const m = norm(q).match(/^(?:RV)?(\d{2}[A-Z])?(\d{1,4})$/);
-  return m ? { batch: m[1] || defBatch(), num: m[2].padStart(4, '0'), typedBatch: !!m[1], typed: m[2].length } : null;
-}
 function go(v) { view = v; render(); window.scrollTo(0, 0); }
 function render() {
   if (!S.session) return renderLogin();
@@ -388,11 +384,15 @@ function render() {
   if (view.name === 'report') return renderReport();
   renderHome();
 }
-function search(q) {
-  const qn = norm(q), ql = q.trim().toLowerCase();
-  if (!qn && !ql) return [];
-  return live().filter(p => (qn && p.id.includes(qn)) || (ql.length > 1 && (p.name || '').toLowerCase().includes(ql)))
-    .sort((a, b) => (b.id.endsWith(qn) - a.id.endsWith(qn)) || (b.id.startsWith(qn) - a.id.startsWith(qn)) || a.id.localeCompare(b.id)).slice(0, 30);
+// By number: matches the digits anywhere in the number part of the code. Exact code first, then this batch, then the rest.
+function searchCode(fullId, batch, digits) {
+  const numOf = id => id.replace(/^RV\d{2}[A-Z]/, ''), rank = p => p.id === fullId ? 0 : p.id.startsWith('RV' + batch) ? 1 : 2;
+  return live().filter(p => numOf(p.id).includes(digits))
+    .sort((a, b) => rank(a) - rank(b) || (b.id.endsWith(digits) - a.id.endsWith(digits)) || a.id.localeCompare(b.id)).slice(0, 30);
+}
+function searchName(name) {
+  const n = name.toLowerCase();
+  return live().filter(p => (p.name || '').toLowerCase().includes(n)).sort((a, b) => (a.name || '').localeCompare(b.name || '')).slice(0, 30);
 }
 // who is expected in a given session today
 function sessionList(s) {
@@ -409,8 +409,9 @@ function renderHome() {
   const list = sessionList(vs), pend = list.filter(x => x.pending).length;
   $('#app').innerHTML = `
     <div class="card">
-      <label for="q">Type the state code (the last digits are enough), or a name</label>
-      <input id="q" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. RV/26C/1234 or just 1234" value="${esc(view.q || '')}">
+      <label for="q">State code: batch (e.g. 26C), then the 4-digit number</label>
+      <div class="codebox"><b class="code">RV/</b><input id="qb" maxlength="3" placeholder="___" autocomplete="off" autocapitalize="characters" spellcheck="false" value="${esc(view.qb ?? defBatch())}"><b class="code">/</b><input id="q" inputmode="numeric" maxlength="4" placeholder="____" autocomplete="off" value="${esc(view.q || '')}"></div>
+      <div class="fld"><label for="qn">or search by name</label><input id="qn" autocomplete="off" spellcheck="false" value="${esc(view.qn || '')}"></div>
       <div id="results"></div>
     </div>
     <div class="card"><h2>Expected today</h2>
@@ -420,26 +421,32 @@ function renderHome() {
         <span class="badge ${x.pending ? (vs < cur ? 'miss' : 'due') : 'ok'}">${x.pending ? (vs < cur ? x.pending + ' missed' : x.pending + ' to give') : '✓ given'}</span></button>`).join('')}
     </div>
     <div class="card stats"><div><b>${all.length}</b><span class="mut">patients on record</span></div><div><b>${all.filter(p => items(p, 'drug').some(d => status(p, d).left)).length}</b><span class="mut">currently on drugs</span></div><span style="flex:1"></span><button class="btn ghost" id="toRep" style="align-self:center">Reports</button></div>`;
-  const q = $('#q');
+  const q = $('#q'), qb = $('#qb'), qn = $('#qn');
   $('#toRep').onclick = () => go({ name: 'report' });
   const open = () => document.querySelectorAll('.res').forEach(b => b.onclick = () => go({ name: 'patient', id: b.dataset.id }));
+  let res = [];
   const draw = () => {
-    view.q = q.value; const res = search(q.value); const qn = norm(q.value);
-    const pc = parseCode(q.value), newId = pc && pc.batch ? 'RV' + pc.batch + pc.num : '', exact = patients.get(newId);
-    const fullCode = !!pc && pc.typedBatch && pc.typed === 4;
-    const canAdd = !!pc && !(exact && !exact.deleted) && (!res.length || fullCode);
+    const digits = q.value.replace(/\D/g, '').slice(0, 4); if (q.value !== digits) q.value = digits; // numbers only
+    const batch = norm(qb.value).slice(0, 3), name = qn.value.trim(), okBatch = /^\d{2}[A-Z]$/.test(batch);
+    Object.assign(view, { q: digits, qb: qb.value, qn: qn.value });
+    const num = digits.padStart(4, '0'), newId = 'RV' + batch + num, exact = okBatch && patients.get(newId);
+    res = digits ? searchCode(newId, batch, digits) : name.length > 1 ? searchName(name) : [];
+    const canAdd = digits && okBatch && !(exact && !exact.deleted) && (!res.length || digits.length === 4);
+    const none = res.length ? '' : digits ? (okBatch ? 'No patient with this number. First visit? Register below.' : 'No patient with this number. To register, fill in the batch first (two digits and a letter, e.g. 26C).')
+      : name.length > 1 ? `No patient found for “${esc(name)}”. To register a new patient, type their state code above.` : '';
     $('#results').innerHTML = res.map(p => {
       const act = items(p, 'drug').filter(d => status(p, d).left), due = act.filter(d => status(p, d).due).length;
       return `<button class="res" data-id="${esc(p.id)}"><span><span class="code">${esc(p.code)}</span> &nbsp;${esc(p.name || '')}${p.allergies ? ' <span style="color:var(--warn)">⚠ allergy</span>' : ''}<br><span class="mut">${act.length ? 'On: ' + act.map(d => esc(d.drug)).join(', ') : 'Not on any drug now'}</span></span>${due ? `<span class="badge due">${due} due now</span>` : '<span class="mut">Open ›</span>'}</button>`;
-    }).join('') + (q.value.trim() && !res.length ? `<p class="mut">No patient found for “${esc(q.value.trim())}”. ${pc ? 'First visit? Register below.' : 'To register a new patient, type the number on their state code.'}</p>` : '')
-      + (canAdd ? `<div class="row" style="margin-top:10px"><button class="btn" id="addNew">+ Register new patient RV/${esc(pc.batch || '…')}/${pc.num}</button></div>` : '');
+    }).join('') + (none ? `<p class="mut">${none}</p>` : '')
+      + (canAdd ? `<div class="row" style="margin-top:10px"><button class="btn" id="addNew">+ Register new patient RV/${esc(batch)}/${num}</button></div>` : '');
     open();
-    const a = $('#addNew'); if (a) a.onclick = () => go({ name: 'patient', id: newId || 'new', batch: pc.batch, num: pc.num, mode: 'edit' });
+    const a = $('#addNew'); if (a) a.onclick = () => go({ name: 'patient', id: newId, batch, num, mode: 'edit' });
   };
-  q.oninput = draw;
-  q.onkeydown = e => { if (e.key === 'Enter') { const l = search(q.value); if (l.length === 1) go({ name: 'patient', id: l[0].id }); else if (!l.length && $('#addNew')) $('#addNew').click(); } };
+  const enter = e => { if (e.key !== 'Enter') return; if (res.length === 1) go({ name: 'patient', id: res[0].id }); else if ($('#addNew')) $('#addNew').click(); };
+  [q, qb, qn].forEach(el => { el.oninput = draw; el.onkeydown = enter; });
+  qb.addEventListener('input', () => { if (norm(qb.value).length === 3) q.focus(); }); // batch complete: jump to the number
   document.querySelectorAll('[data-sess]').forEach(b => b.onclick = () => { view.sess = +b.dataset.sess; render(); });
-  draw(); open(); if (!view.sess && view.sess !== 0) q.focus();
+  draw(); open(); if (!view.sess && view.sess !== 0) (qb.value ? q : qb).focus();
 }
 
 function drugCard(p, d) {
@@ -465,7 +472,7 @@ function renderPatient() {
 
   if (mode === 'edit') {
     h += `<form class="card" id="pf"><h2>${isNew ? 'Register new patient' : 'Edit patient details'}</h2><div class="grid">
-      ${isNew ? `<div class="wide"><label>State code (type the batch and the 4-digit number)</label><div class="row" style="flex-wrap:nowrap;gap:6px"><b class="code" style="font-size:18px">RV/</b><input name="batch" value="${esc(view.batch || defBatch())}" maxlength="3" placeholder="26C" autocapitalize="characters" autocomplete="off" required style="text-transform:uppercase;width:5.5em;flex:none"><b class="code" style="font-size:18px">/</b><input name="num" value="${esc(view.num || '')}" inputmode="numeric" maxlength="4" placeholder="1234" autocomplete="off" required style="min-width:5em"></div></div>`
+      ${isNew ? `<div class="wide"><label>State code: batch (e.g. 26C), then the 4-digit number</label><div class="row" style="flex-wrap:nowrap;gap:6px"><b class="code" style="font-size:18px">RV/</b><input name="batch" value="${esc(view.batch || defBatch())}" maxlength="3" placeholder="___" autocapitalize="characters" autocomplete="off" required class="batch" style="text-transform:uppercase"><b class="code" style="font-size:18px">/</b><input name="num" value="${esc(view.num || '')}" inputmode="numeric" maxlength="4" placeholder="____" autocomplete="off" required style="min-width:5em"></div></div>`
         : `<div><label>State code</label><input name="code" value="${esc(p.code)}" readonly></div>`}
       <div><label>Full name</label><input name="name" value="${esc(p.name)}" required></div>
       <div><label>Sex</label><select name="sex"><option value=""></option>${['M', 'F'].map(s => `<option ${p.sex === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
