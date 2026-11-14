@@ -8,6 +8,7 @@ what is due this session, and how many doses have been taken.
 `index.html` is the whole app (HTML + CSS + JS in one file, no build step).
 
 - Patients are keyed by state code with punctuation stripped (`RV/26C/4110` -> `RV26C4110`).
+  At registration `RV/` and the second `/` are fixed; staff type the batch (`26C`, remembered per phone) and the number (padded to 4 digits).
 - Journey: register patient -> prescription (date, diagnosis) -> drugs -> give doses.
 - A drug has a dose, sessions (Morning / Afternoon / Night), days, first-dose date and session.
   Total doses = days x sessions. Every dose is a fixed slot (date + session).

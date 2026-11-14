@@ -370,6 +370,16 @@ function refreshDrugs() {
   patients.forEach(p => items(p, 'drug').forEach(e => e.drug && set.add(e.drug)));
   $('#drugs').innerHTML = [...set].sort().map(d => `<option value="${esc(d)}">`).join('');
 }
+// State codes always look like RV/26C/1234: "RV/" and the second "/" are fixed; staff type the batch (26C) and the number.
+const defBatch = () => { // the batch this phone used last, or the most common one on record
+  if (S.batch) return S.batch;
+  const n = {}; live().forEach(p => { const m = p.id.match(/^RV(\d{2}[A-Z])\d+$/); if (m) n[m[1]] = (n[m[1]] || 0) + 1; });
+  return Object.keys(n).sort((a, b) => n[b] - n[a])[0] || '';
+};
+function parseCode(q) { // "1234", "26C/1234" or "RV/26C/1234" -> { batch, num }; anything else (a name) -> null
+  const m = norm(q).match(/^(?:RV)?(\d{2}[A-Z])?(\d{1,4})$/);
+  return m ? { batch: m[1] || defBatch(), num: m[2].padStart(4, '0'), typedBatch: !!m[1], typed: m[2].length } : null;
+}
 function go(v) { view = v; render(); window.scrollTo(0, 0); }
 function render() {
   if (!S.session) return renderLogin();
@@ -415,16 +425,16 @@ function renderHome() {
   const open = () => document.querySelectorAll('.res').forEach(b => b.onclick = () => go({ name: 'patient', id: b.dataset.id }));
   const draw = () => {
     view.q = q.value; const res = search(q.value); const qn = norm(q.value);
-    const exact = patients.get(qn);
-    const fullCode = qn.length >= 7 && /[A-Z]/.test(qn) && /\d{3}/.test(qn);
-    const canAdd = qn.length >= 3 && !(exact && !exact.deleted) && (!res.length || fullCode);
+    const pc = parseCode(q.value), newId = pc && pc.batch ? 'RV' + pc.batch + pc.num : '', exact = patients.get(newId);
+    const fullCode = !!pc && pc.typedBatch && pc.typed === 4;
+    const canAdd = !!pc && !(exact && !exact.deleted) && (!res.length || fullCode);
     $('#results').innerHTML = res.map(p => {
       const act = items(p, 'drug').filter(d => status(p, d).left), due = act.filter(d => status(p, d).due).length;
       return `<button class="res" data-id="${esc(p.id)}"><span><span class="code">${esc(p.code)}</span> &nbsp;${esc(p.name || '')}${p.allergies ? ' <span style="color:var(--warn)">⚠ allergy</span>' : ''}<br><span class="mut">${act.length ? 'On: ' + act.map(d => esc(d.drug)).join(', ') : 'Not on any drug now'}</span></span>${due ? `<span class="badge due">${due} due now</span>` : '<span class="mut">Open ›</span>'}</button>`;
-    }).join('') + (q.value.trim() && !res.length ? `<p class="mut">No patient found for “${esc(q.value.trim())}”. First visit? Register below.</p>` : '')
-      + (canAdd ? `<div class="row" style="margin-top:10px"><button class="btn" id="addNew">+ Register new patient ${esc(q.value.trim().toUpperCase())}</button></div>` : '');
+    }).join('') + (q.value.trim() && !res.length ? `<p class="mut">No patient found for “${esc(q.value.trim())}”. ${pc ? 'First visit? Register below.' : 'To register a new patient, type the number on their state code.'}</p>` : '')
+      + (canAdd ? `<div class="row" style="margin-top:10px"><button class="btn" id="addNew">+ Register new patient RV/${esc(pc.batch || '…')}/${pc.num}</button></div>` : '');
     open();
-    const a = $('#addNew'); if (a) a.onclick = () => go({ name: 'patient', id: qn, newCode: q.value.trim().toUpperCase(), mode: 'edit' });
+    const a = $('#addNew'); if (a) a.onclick = () => go({ name: 'patient', id: newId || 'new', batch: pc.batch, num: pc.num, mode: 'edit' });
   };
   q.oninput = draw;
   q.onkeydown = e => { if (e.key === 'Enter') { const l = search(q.value); if (l.length === 1) go({ name: 'patient', id: l[0].id }); else if (!l.length && $('#addNew')) $('#addNew').click(); } };
@@ -446,7 +456,7 @@ function drugCard(p, d) {
 function renderPatient() {
   let p = patients.get(view.id);
   const isNew = !p || p.deleted;
-  if (isNew) p = { id: view.id, code: view.newCode || view.id, name: '', sex: '', platoon: '', phone: '', allergies: '', entries: (p && p.entries) || [], createdAt: Date.now() };
+  if (isNew) p = { id: view.id, code: '', name: '', sex: '', platoon: '', phone: '', allergies: '', entries: (p && p.entries) || [], createdAt: Date.now() };
   const mode = isNew ? 'edit' : view.mode || '';
   const rxs = items(p, 'rx').sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.createdAt - a.createdAt);
   const drugs = items(p, 'drug'), cur = nowSess();
@@ -455,7 +465,8 @@ function renderPatient() {
 
   if (mode === 'edit') {
     h += `<form class="card" id="pf"><h2>${isNew ? 'Register new patient' : 'Edit patient details'}</h2><div class="grid">
-      <div><label>State code</label><input name="code" value="${esc(p.code)}" ${isNew ? '' : 'readonly'} style="text-transform:uppercase"></div>
+      ${isNew ? `<div class="wide"><label>State code (type the batch and the 4-digit number)</label><div class="row" style="flex-wrap:nowrap;gap:6px"><b class="code" style="font-size:18px">RV/</b><input name="batch" value="${esc(view.batch || defBatch())}" maxlength="3" placeholder="26C" autocapitalize="characters" autocomplete="off" required style="text-transform:uppercase;width:5.5em;flex:none"><b class="code" style="font-size:18px">/</b><input name="num" value="${esc(view.num || '')}" inputmode="numeric" maxlength="4" placeholder="1234" autocomplete="off" required style="min-width:5em"></div></div>`
+        : `<div><label>State code</label><input name="code" value="${esc(p.code)}" readonly></div>`}
       <div><label>Full name</label><input name="name" value="${esc(p.name)}" required></div>
       <div><label>Sex</label><select name="sex"><option value=""></option>${['M', 'F'].map(s => `<option ${p.sex === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
       <div><label>Platoon</label><input name="platoon" value="${esc(p.platoon)}"></div>
@@ -539,7 +550,15 @@ function renderPatient() {
   const pf = $('#pf');
   if (pf) pf.onsubmit = async ev => {
     ev.preventDefault(); const f = Object.fromEntries(new FormData(pf));
-    if (isNew) { const id = norm(f.code); if (id.length < 3) return toast('Enter a valid state code'); const ex = patients.get(id); if (ex && !ex.deleted) return toast('That state code already exists'); p.id = id; p.code = f.code.trim().toUpperCase(); if (ex) p.entries = ex.entries || []; }
+    if (isNew) {
+      const batch = norm(f.batch), num = f.num.trim();
+      if (!/^\d{2}[A-Z]$/.test(batch)) return toast('The batch should look like 26C: two digits and a letter');
+      if (!/^\d{1,4}$/.test(num)) return toast('The number should be up to 4 digits');
+      const code = `RV/${batch}/${num.padStart(4, '0')}`, id = norm(code), ex = patients.get(id);
+      if (ex && !ex.deleted) return toast(code + ' is already registered');
+      p.id = id; p.code = code; if (ex) p.entries = ex.entries || [];
+      S.batch = batch; Store.setMeta('settings', S); // remembered, so the next registration starts with the same batch
+    }
     Object.assign(p, { name: f.name.trim(), sex: f.sex, platoon: f.platoon.trim(), phone: f.phone.trim(), allergies: f.allergies.trim(), deleted: false });
     await saveLocal(p, true); toast('Patient saved'); go({ name: 'patient', id: p.id, mode: isNew ? 'rx' : '' });
   };
@@ -579,7 +598,7 @@ function renderPatient() {
     });
     on('#delD', async () => { if (!await ask(`Delete ${d.drug} from the prescription?`)) return; d.deleted = true; d.updatedAt = Date.now(); await saveLocal(p, false); back(); });
   }
-  const foc = $('#pf [name=name]') || $('#rf [name=diagnosis]') || $('#df [name=drug]'); if (foc && !foc.value) foc.focus();
+  const fb = $('#pf [name=batch]'), foc = (fb && !fb.value ? fb : null) || $('#pf [name=name]') || $('#rf [name=diagnosis]') || $('#df [name=drug]'); if (foc && !foc.value) foc.focus();
 }
 
 function loginForm(title, note) {
