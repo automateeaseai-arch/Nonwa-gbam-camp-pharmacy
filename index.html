@@ -60,6 +60,7 @@
   .dot.given { background:var(--g); border-color:var(--g); color:#fff; } .dot.missed { background:var(--warnbg); border-color:#e39a94; color:var(--warn); }
   .dot.due { border-color:#d99a00; background:var(--amberbg); color:var(--amber); box-shadow:0 0 0 2px #f3d27a; }
   details.card summary { cursor:pointer; }
+  #upd:not([hidden]) { display:block; }
   h2 { font-size:16px; margin:0 0 10px; }
   .stats { display:flex; gap:18px; flex-wrap:wrap; }
   .stats b { font-size:20px; display:block; }
@@ -76,6 +77,7 @@
 </header>
 <div id="status"><span class="dot"></span><span id="statusText">Starting…</span></div>
 <div id="memwarn" hidden style="background:#fdecea;color:#b3261e;padding:10px 14px;font-weight:600;font-size:14px">This is only a preview: records typed here are NOT kept after you close it. Open the app's web link in Chrome to use it for real.</div>
+<button id="upd" hidden style="width:100%;border:0;background:#fff4d6;color:#8a5a00;padding:10px 14px;font:600 14px system-ui;cursor:pointer;text-align:left">A new version of the app is ready — tap here to update</button>
 <main id="app"></main>
 <datalist id="drugs"></datalist>
 
@@ -613,7 +615,11 @@ function renderSettings() {
 $('#home').onclick = () => go({ name: 'home', q: '' });
 $('#syncBtn').onclick = () => sync(true);
 $('#setBtn').onclick = () => go({ name: S.session ? 'settings' : 'home' });
-if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+  navigator.serviceWorker.addEventListener('message', e => { if (e.data === 'update') $('#upd').hidden = false; });
+}
+$('#upd').onclick = () => location.reload();
 (async () => {
   await Store.open();
   (await Store.all()).forEach(p => patients.set(p.id, p));
