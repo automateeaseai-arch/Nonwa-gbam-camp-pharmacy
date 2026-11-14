@@ -447,7 +447,7 @@ function renderPatient() {
       <div><label>First dose date</label><input name="startDate" type="date" value="${esc(v.startDate)}" required></div>
       <div><label>First dose session</label><select name="startSession">${SESS.map((t, i) => `<option value="${i}" ${+v.startSession === i ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
       <div class="wide" id="tot" style="font-weight:600"></div>
-    </div><div class="row" style="margin-top:12px"><button class="btn">${d ? 'Save' : 'Add drug'}</button><button type="button" class="btn ghost" id="cancel">${d ? 'Cancel' : 'Done'}</button>
+    </div><div class="row" style="margin-top:12px">${d ? '<button class="btn">Save</button><button type="button" class="btn ghost" id="cancel">Cancel</button>' : '<button type="button" class="btn" id="fin">Save and finish</button><button class="btn ghost">Save and add another</button>'}
       ${d ? `<span style="flex:1"></span><button type="button" class="btn ghost" id="stopD">${d.stopped ? 'Restart drug' : 'Stop drug'}</button><button type="button" class="btn danger" id="delD">Delete</button>` : ''}</div></form>`;
   }
 
@@ -521,14 +521,18 @@ function renderPatient() {
     const read = () => { const fd = new FormData(df); return { drug: fd.get('drug').trim(), dose: fd.get('dose').trim(), days: Math.round(+fd.get('days') || 0), times: fd.getAll('times'), startDate: fd.get('startDate'), startSession: +fd.get('startSession') }; };
     const tot = () => { const v = read(), n = totalOf(v), sl = slots(v); $('#tot').textContent = n ? `Total: ${n} doses. Last dose: ${SESS[sl[sl.length - 1].s]}, ${fmtDate(sl[sl.length - 1].date)}.` : 'Tick when to take it and enter the days to see the total doses.'; };
     df.oninput = tot; tot();
-    df.onsubmit = async ev => {
-      ev.preventDefault(); const v = read();
+    const save = async another => {
+      const v = read();
+      if (!v.drug) return toast('Enter the drug name');
       if (!v.times.length) return toast('Tick at least one: Morning, Afternoon or Night');
       if (v.days < 1) return toast('Enter the number of days');
       if (d) Object.assign(d, v, { updatedAt: Date.now() }); else p.entries.push({ id: uid(), t: 'drug', rxId: view.rxId, createdAt: Date.now(), updatedAt: Date.now(), ...v });
-      await saveLocal(p, false); refreshDrugs(); toast(d ? 'Drug updated' : v.drug + ' added — add another, or press Done');
-      go(d ? { name: 'patient', id: p.id } : { name: 'patient', id: p.id, mode: 'drug', rxId: view.rxId });
+      await saveLocal(p, false); refreshDrugs(); toast(d ? 'Drug updated' : v.drug + ' saved' + (another ? ' — add the next drug' : ''));
+      go(another ? { name: 'patient', id: p.id, mode: 'drug', rxId: view.rxId } : { name: 'patient', id: p.id });
     };
+    df.onsubmit = ev => { ev.preventDefault(); save(!d); };
+    // "Save and finish": saves what is typed; if nothing is typed, just closes
+    on('#fin', () => { const v = read(); if (!v.drug && !v.times.length && !v.days) back(); else save(false); });
     on('#stopD', async () => {
       if (d.stopped) d.stopped = false;
       else { if (!await ask(`Stop ${d.drug}? Remaining doses will be cancelled.`, 'Stop drug')) return; const s = status(p, d); Object.assign(d, { stopped: true, stopDate: today(), stopSession: nowSess() + (s.givenNow ? 1 : 0) }); }
