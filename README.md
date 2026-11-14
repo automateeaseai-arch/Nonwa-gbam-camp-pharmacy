@@ -41,6 +41,8 @@ Each patient is one record: `{id, code, name, sex, platoon, phone, allergies, up
 ## Access
 - Staff sign in with email and password (Supabase Auth). Internet is needed for the first sign-in only.
 - Only emails in the `staff` table can read or write, even if sign-ups are left open.
+- Only admins (`staff.is_admin`) can delete a patient or a prescription. The buttons are hidden for other staff,
+  and `sync_push` undoes such a delete if one arrives anyway. Any staff member can stop or delete a single drug.
 - Signing out removes records from that phone (blocked while uploads are pending).
 
 ## Admin: adding a staff member
@@ -59,4 +61,3 @@ Tested in headless Chrome with two simulated phones against the schema in a loca
 
 ## Next steps
 - Host on GitHub Pages so phones can install it.
-- Admin-only deletes (`staff.is_admin` exists but is not enforced yet).

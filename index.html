@@ -163,6 +163,7 @@ let syncing = false, syncError = '';
 
 const clean = p => { const { _dirty, _rev, ...rest } = p; return rest; };
 const live = () => [...patients.values()].filter(p => !p.deleted);
+const isAdmin = () => !!(S.me && S.me.admin); // only admins may delete a patient or a prescription (the database enforces it too)
 const dirtyCount = () => [...patients.values()].filter(p => p._dirty).length;
 
 async function saveLocal(p, touchDetails) {
@@ -424,7 +425,7 @@ function renderPatient() {
       <div><label>Platoon</label><input name="platoon" value="${esc(p.platoon)}"></div>
       <div><label>Phone</label><input name="phone" inputmode="tel" value="${esc(p.phone)}"></div>
       <div class="wide"><label>Drug allergies (leave empty if none known)</label><input name="allergies" value="${esc(p.allergies)}"></div>
-    </div><div class="row" style="margin-top:12px"><button class="btn">${isNew ? 'Save and write prescription' : 'Save'}</button>${isNew ? '' : '<button type="button" class="btn ghost" id="cancel">Cancel</button><span style="flex:1"></span><button type="button" class="btn danger" id="delP">Delete patient</button>'}</div></form>`;
+    </div><div class="row" style="margin-top:12px"><button class="btn">${isNew ? 'Save and write prescription' : 'Save'}</button>${isNew ? '' : '<button type="button" class="btn ghost" id="cancel">Cancel</button>' + (isAdmin() ? '<span style="flex:1"></span><button type="button" class="btn danger" id="delP">Delete patient</button>' : '')}</div></form>`;
   } else {
     h += `<div class="card"><div class="row" style="justify-content:space-between"><div><div class="code" style="font-size:20px">${esc(p.code)}</div><div style="font-size:18px">${esc(p.name)}</div>
       <div class="mut">${[p.sex, p.platoon && 'Platoon ' + p.platoon, p.phone].filter(Boolean).map(esc).join(' · ')}</div></div><button class="btn ghost" id="editP">Edit details</button></div>
@@ -437,7 +438,7 @@ function renderPatient() {
       <div><label>Date</label><input name="date" type="date" value="${esc(v.date)}" required></div>
       <div class="wide"><label>Diagnosis</label><input name="diagnosis" value="${esc(v.diagnosis)}" required></div>
       <div><label>Prescribed by</label><input name="by" value="${esc(v.by)}"></div>
-    </div><div class="row" style="margin-top:12px"><button class="btn">${r ? 'Save' : 'Save and add drugs'}</button><button type="button" class="btn ghost" id="cancel">Cancel</button>${r ? '<span style="flex:1"></span><button type="button" class="btn danger" id="delRx">Delete prescription</button>' : ''}</div></form>`;
+    </div><div class="row" style="margin-top:12px"><button class="btn">${r ? 'Save' : 'Save and add drugs'}</button><button type="button" class="btn ghost" id="cancel">Cancel</button>${r && isAdmin() ? '<span style="flex:1"></span><button type="button" class="btn danger" id="delRx">Delete prescription</button>' : ''}</div></form>`;
   }
   if (mode === 'drug') {
     const d = view.drugId ? drugs.find(x => x.id === view.drugId) : null, v = d || { times: [], days: '', startDate: today(), startSession: cur };

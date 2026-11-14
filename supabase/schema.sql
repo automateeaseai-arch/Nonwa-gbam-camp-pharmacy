@@ -37,18 +37,33 @@ create policy "staff read patients" on public.patients
 -- 3. Upload changes. Merges each record with what is already stored, so two
 --    phones editing the same patient never wipe out each other's entries:
 --    patient details: newest updatedAt wins; entries (rx/drug/dose): merged one by one, newest updatedAt wins.
+--    Only admins may delete a patient or a prescription: such a change from anyone else is undone here.
 create or replace function public.sync_push(changes jsonb) returns bigint
 language plpgsql security definer set search_path = public as $$
 declare
-  c jsonb; old jsonb; merged jsonb; ents jsonb; pid text;
+  c jsonb; old jsonb; merged jsonb; ents jsonb; pid text; adm boolean;
   ts bigint := (extract(epoch from clock_timestamp()) * 1000)::bigint;
 begin
-  if not public.is_staff() then raise exception 'This account is not on the staff list'; end if;
+  select is_admin into adm from staff where lower(email) = lower(auth.jwt() ->> 'email');
+  if adm is null then raise exception 'This account is not on the staff list'; end if;
   for c in select * from jsonb_array_elements(coalesce(changes, '[]'::jsonb)) loop
     pid := c ->> 'id';
     if coalesce(pid, '') = '' then continue; end if;
     insert into patients (id, data) values (pid, '{}'::jsonb) on conflict (id) do nothing;
     select data into old from patients where id = pid for update;
+    if not adm then
+      if coalesce((c ->> 'deleted')::boolean, false) and old ? 'id' and not coalesce((old ->> 'deleted')::boolean, false) then
+        c := (old - 'entries') || jsonb_build_object('entries', coalesce(c -> 'entries', '[]'::jsonb),
+          'updatedAt', greatest(ts, coalesce((c ->> 'updatedAt')::numeric, 0) + 1));
+      end if;
+      select coalesce(jsonb_agg(case
+          when ne ->> 't' = 'rx' and coalesce((ne ->> 'deleted')::boolean, false) and oe is not null and not coalesce((oe ->> 'deleted')::boolean, false)
+          then oe || jsonb_build_object('updatedAt', greatest(ts, coalesce((ne ->> 'updatedAt')::numeric, 0) + 1))
+          else ne end), '[]'::jsonb) into ents
+        from jsonb_array_elements(coalesce(c -> 'entries', '[]'::jsonb)) as n(ne)
+        left join jsonb_array_elements(coalesce(old -> 'entries', '[]'::jsonb)) as o(oe) on oe ->> 'id' = ne ->> 'id';
+      c := jsonb_set(c, '{entries}', ents);
+    end if;
     merged := case when coalesce((c ->> 'updatedAt')::numeric, 0) >= coalesce((old ->> 'updatedAt')::numeric, 0) then c else old end;
     select coalesce(jsonb_agg(z.e order by z.e ->> 'id'), '[]'::jsonb) into ents from (
       select distinct on (u.e ->> 'id') u.e from (
