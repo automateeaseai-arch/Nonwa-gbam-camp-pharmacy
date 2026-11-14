@@ -541,7 +541,7 @@ function renderPatient() {
 
 function loginForm(title, note) {
   return `<form class="card" id="lf" style="max-width:440px;margin:24px auto"><h2>${title}</h2>
-    <div class="fld"><label>Email</label><input name="email" type="email" autocomplete="username" required value="${esc((S.session && S.session.email) || '')}"></div>
+    <div class="fld"><label>Email</label><input name="email" type="text" inputmode="email" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="username" required value="${esc((S.session && S.session.email) || '')}"></div>
     <div class="fld"><label>Password</label><input name="password" type="password" autocomplete="current-password" required></div>
     <div class="row" style="margin-top:14px"><button class="btn">Sign in</button></div><p class="mut">${note}</p></form>`;
 }
@@ -550,7 +550,7 @@ function bindLogin(after) {
     ev.preventDefault(); const f = Object.fromEntries(new FormData($('#lf'))), btn = $('#lf button');
     btn.disabled = true; btn.textContent = 'Signing in…';
     try {
-      await signIn({ email: f.email.trim(), password: f.password }, 'password');
+      await signIn({ email: f.email.replace(/\s/g, '').toLowerCase(), password: f.password }, 'password');
       try { await loadMe(); } catch (e) { S.session = null; await Store.setMeta('settings', S); throw e; }
       toast('Signed in as ' + S.me.name); syncError = ''; after(); sync(false);
     } catch (e) {
