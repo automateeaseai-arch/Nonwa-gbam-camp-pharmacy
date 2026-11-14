@@ -64,6 +64,9 @@ begin
   return ts;
 end $$;
 
+-- Signed-in users may read (the policies above still limit this to staff). No write grants: writes go through sync_push.
+grant select on public.staff, public.patients to authenticated;
+
 revoke all on function public.sync_push(jsonb) from public, anon;
 grant execute on function public.sync_push(jsonb) to authenticated;
 revoke all on function public.is_staff() from public, anon;
