@@ -1,6 +1,6 @@
 // Keeps the app available offline. Shows the saved copy at once and fetches
 // the newest version in the background, so updates appear the next time the app is opened.
-const CACHE = 'camp-pharmacy-v11';
+const CACHE = 'camp-pharmacy-v12';
 const SHELL = ['./', 'manifest.webmanifest', 'splash.jpg', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png'];
 
 self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())));

@@ -242,7 +242,8 @@ class AuthError extends Error {}
 async function sb(path, opt = {}, auth = true, retried = false) {
   const h = { apikey: SB_KEY, 'Content-Type': 'application/json', ...(opt.headers || {}) };
   if (auth) h.Authorization = 'Bearer ' + await token();
-  const r = await fetch(SB_URL + path, { ...opt, headers: h });
+  const r = await Promise.race([fetch(SB_URL + path, Object.assign({}, opt, { headers: h })),
+    new Promise((_, no) => setTimeout(() => no(new TypeError('timeout')), 25000))]);
   const txt = await r.text(); let j = null; try { j = txt ? JSON.parse(txt) : null; } catch (e) {}
   if (r.ok) return j;
   const msg = (j && (j.msg || j.message || j.error_description || j.error)) || 'Error ' + r.status;
@@ -619,24 +620,33 @@ function renderPatient() {
 }
 
 function loginForm(title, note) {
-  return `<form class="card" id="lf" style="max-width:440px;margin:24px auto"><h2>${title}</h2>
+  return `<form class="card" id="lf" novalidate style="max-width:440px;margin:24px auto"><h2>${title}</h2>
     <div class="fld"><label>Email</label><input name="email" type="text" inputmode="email" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="username" required value="${esc((S.session && S.session.email) || '')}"></div>
     <div class="fld"><label>Password</label><input name="password" type="password" autocomplete="current-password" required></div>
     <label class="chk" style="margin-top:10px;border:0;padding:0"><input type="checkbox" id="showpw"> Show password</label>
-    <div class="row" style="margin-top:14px"><button class="btn">Sign in</button></div><p class="mut">${note}</p></form>`;
+    <div class="row" style="margin-top:14px"><button class="btn">Sign in</button></div>
+    <p id="lmsg" style="font-weight:600;min-height:1.2em;margin:10px 0 0"></p><p class="mut">${note}</p></form>`;
 }
 function bindLogin(after) {
   $('#showpw').onchange = e => { $('#lf [name=password]').type = e.target.checked ? 'text' : 'password'; };
   $('#lf').onsubmit = async ev => {
-    ev.preventDefault(); const f = Object.fromEntries(new FormData($('#lf'))), btn = $('#lf button');
-    btn.disabled = true; btn.textContent = 'Signing in…';
+    ev.preventDefault();
+    const form = $('#lf'), btn = form.querySelector('button.btn'), msg = $('#lmsg');
+    const say = (t, bad) => { msg.textContent = t; msg.style.color = bad ? 'var(--warn)' : 'var(--g)'; };
+    if (btn.disabled) return;
+    const email = form.email.value.replace(/\s/g, '').toLowerCase(), password = form.password.value;
+    if (!email || email.indexOf('@') < 1) return say('Type your email address.', true);
+    if (!password) return say('Type your password.', true);
+    if (!navigator.onLine) return say('No internet. Signing in needs a connection the first time.', true);
+    btn.disabled = true; btn.textContent = 'Signing in…'; say('Signing in…');
     try {
-      await signIn({ email: f.email.replace(/\s/g, '').toLowerCase(), password: f.password }, 'password');
+      await signIn({ email, password }, 'password');
       try { await loadMe(); } catch (e) { S.session = null; await Store.setMeta('settings', S); throw e; }
-      toast('Signed in as ' + S.me.name); syncError = ''; after(); sync(false);
+      say('Signed in as ' + S.me.name); toast('Signed in as ' + S.me.name); syncError = ''; after(); sync(false);
     } catch (e) {
-      toast(e instanceof TypeError ? 'No internet. Signing in needs a connection the first time.' : 'Sign in failed: ' + e.message);
-      btn.disabled = false; btn.textContent = 'Sign in';
+      const t = e instanceof TypeError ? 'Cannot reach the server. Check the internet and try again.' : 'Sign in failed: ' + (e.message || e);
+      if ($('#lmsg')) say(t, true); else toast(t);
+      if (btn.isConnected) { btn.disabled = false; btn.textContent = 'Sign in'; }
     }
   };
 }
