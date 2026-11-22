@@ -62,11 +62,11 @@
   details.card summary { cursor:pointer; }
   #upd:not([hidden]) { display:block; }
   /* loading page: the design image fills the height; narrow phones crop the sides, wide screens show green at the sides */
-  #splash { position:fixed; inset:0; z-index:50; background:#036c35; overflow:hidden; transition:opacity .45s; }
+  #splash { position:fixed; top:0; right:0; bottom:0; left:0; z-index:50; background:#036c35; overflow:hidden; transition:opacity .45s; }
   #splash.out { opacity:0; pointer-events:none; }
   #splash .art { position:absolute; left:50%; top:0; transform:translateX(-50%); height:100vh; width:calc(100vh * 941 / 1672); height:100dvh; width:calc(100dvh * 941 / 1672); background:url(splash.jpg) center/cover; }
   #splash .art i { position:absolute; left:24.76%; top:86.48%; width:50.48%; height:1.56%; border-radius:99px; overflow:hidden; } /* sits exactly on the bar drawn in the image */
-  #splash .art i::after { content:''; position:absolute; inset:0 auto 0 0; width:47%; background:#fff; border-radius:99px; animation:load 1.5s ease-out forwards; }
+  #splash .art i::after { content:''; position:absolute; top:0; bottom:0; left:0; width:47%; background:#fff; border-radius:99px; animation:load 1.5s ease-out forwards; }
   @keyframes load { to { width:100%; } }
   h2 { font-size:16px; margin:0 0 10px; }
   .stats { display:flex; gap:18px; flex-wrap:wrap; }
@@ -84,6 +84,20 @@
 <body>
 <div id="splash"><div class="art"><i></i></div></div>
 <script>
+/* Fill-ins for older tablets and phones (Chrome before version 73), written in old-style JavaScript. */
+if (!Object.fromEntries) Object.fromEntries = function (it) { var o = {}; Array.from(it).forEach(function (kv) { o[kv[0]] = kv[1]; }); return o; };
+if (!Array.prototype.flat) Object.defineProperty(Array.prototype, 'flat', { configurable: true, writable: true, value: function () { return [].concat.apply([], this); } });
+if (!Array.prototype.flatMap) Object.defineProperty(Array.prototype, 'flatMap', { configurable: true, writable: true, value: function (fn, t) { return [].concat.apply([], this.map(fn, t)); } });
+if (window.Promise && !Promise.prototype.finally) Promise.prototype.finally = function (fn) { return this.then(function (v) { return Promise.resolve(fn()).then(function () { return v; }); }, function (e) { return Promise.resolve(fn()).then(function () { throw e; }); }); };
+if (!('isConnected' in Node.prototype)) Object.defineProperty(Node.prototype, 'isConnected', { get: function () { return document.documentElement.contains(this); } });
+/* Show any unexpected error on screen, so a problem on a staff phone can be reported instead of a button that silently does nothing. */
+window.addEventListener('error', function (e) { showErr(e.message); });
+window.addEventListener('unhandledrejection', function (e) { showErr(e.reason && e.reason.message || String(e.reason)); });
+function showErr(m) {
+  var d = document.getElementById('errbar');
+  if (!d) { d = document.createElement('div'); d.id = 'errbar'; d.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:60;background:#b3261e;color:#fff;padding:10px 14px;font:14px system-ui,sans-serif'; d.onclick = function () { d.parentNode.removeChild(d); }; document.body.appendChild(d); }
+  d.textContent = 'Error: ' + m + ' (Chrome ' + ((navigator.userAgent.match(/Chrome\/(\d+)/) || [])[1] || '?') + ') - tap to close';
+}
 /* Safety net in old-style JavaScript, so it runs on any browser: if the app has not started after 8 seconds,
    remove the loading page and say what to do instead of leaving the screen stuck. */
 setTimeout(function () {
@@ -118,7 +132,7 @@ function toast(msg) { document.querySelectorAll('.toast').forEach(t => t.remove(
 function ask(msg, okLabel) {
   return new Promise(res => {
     const o = document.createElement('div');
-    o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:20;padding:20px';
+    o.style.cssText = 'position:fixed;top:0;right:0;bottom:0;left:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:20;padding:20px';
     o.innerHTML = `<div class="card" style="max-width:360px;margin:0"><p style="margin-top:0">${esc(msg)}</p><div class="row" style="justify-content:flex-end"><button class="btn ghost" data-a="0">Cancel</button><button class="btn danger" data-a="1">${esc(okLabel || 'Delete')}</button></div></div>`;
     o.onclick = e => { const a = e.target.dataset && e.target.dataset.a; if (a !== undefined || e.target === o) { o.remove(); res(a === '1'); } };
     document.body.appendChild(o);
@@ -127,7 +141,7 @@ function ask(msg, okLabel) {
 function askTyped(msg, word, okLabel) { // for actions that cannot be undone: the word must be typed
   return new Promise(res => {
     const o = document.createElement('div');
-    o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:20;padding:20px';
+    o.style.cssText = 'position:fixed;top:0;right:0;bottom:0;left:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:20;padding:20px';
     o.innerHTML = `<div class="card" style="max-width:380px;margin:0"><p style="margin-top:0">${esc(msg)}</p><label>Type ${word} to confirm</label><input id="tw" autocomplete="off" autocapitalize="characters" spellcheck="false">
       <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn ghost" data-a="0">Cancel</button><button class="btn danger" data-a="1">${esc(okLabel)}</button></div></div>`;
     o.onclick = e => { const a = e.target.dataset && e.target.dataset.a;
