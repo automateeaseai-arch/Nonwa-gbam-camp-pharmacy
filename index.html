@@ -402,6 +402,15 @@ const defBatch = () => { // the batch this phone used last, or the most common o
   return Object.keys(n).sort((a, b) => n[b] - n[a])[0] || '';
 };
 function go(v) { view = v; render(); window.scrollTo(0, 0); }
+// Android app Back button: close an open box, or go back to the search screen. Returns false when there is nothing to go back to.
+window.appBack = () => {
+  const box = [...document.querySelectorAll('body > div')].find(d => d.querySelector('[data-a]'));
+  if (box) { const c = box.querySelector('[data-a="0"]'); if (c) c.click(); else box.remove(); return true; }
+  if (!S.session || (view.name === 'home' && !view.mode)) return false;
+  if (view.name === 'patient' && view.mode && !(patients.get(view.id) || {}).deleted && patients.get(view.id)) go({ name: 'patient', id: view.id });
+  else go({ name: 'home', q: '' });
+  return true;
+};
 function render() {
   if (!S.session) return renderLogin();
   if (view.name === 'patient') return renderPatient();
@@ -695,7 +704,8 @@ function renderSettings() {
     go({ name: 'home', q: '' }); showStatus();
   };
   if ($('#inst')) $('#inst').onclick = async () => { installEvt.prompt(); await installEvt.userChoice; installEvt = null; render(); };
-  const dl = (name, text, type) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; document.body.appendChild(a); a.click(); a.remove(); };
+  const dl = (name, text, type) => { if (window.AndroidBridge) return AndroidBridge.saveFile(name, type, text); // Android app: save to Downloads
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; document.body.appendChild(a); a.click(); a.remove(); };
   $('#toRep').onclick = () => go({ name: 'report' });
   if ($('#wipe')) $('#wipe').onclick = wipeAll;
   $('#exp').onclick = () => { backedUp = true; dl(`pharmacy-backup-${today()}.json`, JSON.stringify([...patients.values()].map(clean)), 'application/json'); };
@@ -751,7 +761,7 @@ function renderReport() {
   const tbl = (title, list, head) => `<div><h3>${title}</h3>${list.length ? `<table><tr><th>${head}</th><th style="text-align:right">Number</th></tr>${list.map(x => `<tr><td>${esc(x.label)}</td><td style="text-align:right">${x.n}</td></tr>`).join('')}</table>` : '<p class="mut">None</p>'}</div>`;
   $('#app').innerHTML = `<div class="row noprint" style="margin-bottom:10px"><button class="btn ghost" id="back">‹ Search</button></div>
     <div class="card noprint"><h2>Report period</h2><div class="grid"><div><label>From</label><input type="date" id="rf1" value="${esc(view.from)}"></div><div><label>To</label><input type="date" id="rf2" value="${esc(view.to)}"></div></div>
-      <div class="row" style="margin-top:12px"><button class="btn" id="pdf">Save as PDF / Print</button><span class="mut">In the next screen choose “Save as PDF”.</span></div></div>
+      <div class="row" style="margin-top:12px"><button class="btn" id="pdf">Save as PDF / Print</button><span class="mut">In the next screen choose “Save as PDF”, then the save button.</span></div></div>
     <div class="card"><h2 style="font-size:18px;margin-bottom:2px">Nonwa Gbam NYSC Camp Pharmacy</h2><div><b>Records report: ${fmtDate(from)} to ${fmtDate(to)}</b></div>
       <div class="mut">Prepared ${fmtDate(today())}${S.staff ? ' by ' + esc(S.staff) : ''} · counted by prescription date</div>
       <div class="tiles"><div><b>${R.patients}</b>patients seen</div><div><b>${R.visits}</b>prescriptions</div><div><b>${R.drugs}</b>drugs prescribed</div><div><b>${R.taken}</b>doses given</div><div><b>${R.missed}</b>doses missed</div><div><b>${R.left}</b>doses still to come</div><div><b>${pct}</b>of due doses given</div><div><b>${R.allergy}</b>patients with an allergy</div></div>
@@ -764,7 +774,7 @@ function renderReport() {
   $('#back').onclick = () => go({ name: 'home', q: '' });
   $('#rf1').onchange = e => { if (e.target.value) { view.from = e.target.value; render(); } };
   $('#rf2').onchange = e => { if (e.target.value) { view.to = e.target.value; render(); } };
-  $('#pdf').onclick = () => { const t = document.title; document.title = `Pharmacy report ${from} to ${to}`; window.print(); setTimeout(() => { document.title = t; }, 1000); };
+  $('#pdf').onclick = () => { const t = document.title; document.title = `Pharmacy report ${from} to ${to}`; if (window.AndroidBridge) AndroidBridge.print(document.title); else window.print(); setTimeout(() => { document.title = t; }, 1000); };
 }
 
 /* ---------- start ---------- */

@@ -1,0 +1,36 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'io.github.camppharmacy'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'io.github.camppharmacy'
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName '1.0'
+    }
+
+    // The key comes from the build machine (see .github/workflows/android.yml); nothing secret is stored in the repository.
+    signingConfigs {
+        release {
+            storeFile file(System.getenv('APK_KEYSTORE') ?: 'missing.jks')
+            storePassword System.getenv('APK_KEY_PASSWORD')
+            keyAlias 'camppharmacy'
+            keyPassword System.getenv('APK_KEY_PASSWORD')
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+}

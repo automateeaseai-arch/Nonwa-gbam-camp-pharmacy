@@ -61,6 +61,15 @@ Settings -> End of camp -> Delete all records (admins only). A backup must be do
 `wipe_all` deletes every row in `patients` and changes `camp.epoch`. Each phone compares that value on its next sync
 and clears its own copy; `sync_push` refuses uploads that carry an old value, so old records cannot come back.
 
+## Android app (APK)
+`android/` is a small native app that shows the website in Android's own web viewer, for devices where
+Chrome's "Install" crashes. It adds saving files to Downloads, Print / Save as PDF and the Back button
+(the website calls `window.AndroidBridge`, and the app calls `window.appBack()`).
+GitHub builds it (`.github/workflows/android.yml`) when `android/` changes and publishes it at
+https://github.com/automateeaseai-arch/Nonwa-gbam-camp-pharmacy/releases/download/android-app/CampPharmacy.apk
+Website updates reach the app without a new APK. Each build has a fresh signing key, so to install a newer
+APK, sync, uninstall the old one, then install.
+
 ## Keeping the database awake
 Supabase pauses free projects after about a week without activity. `.github/workflows/keepalive.yml`
 reads the `ping` view twice a week. If it fails, GitHub emails the repository owner.
