@@ -64,7 +64,7 @@
   /* loading page: the design image fills the height; narrow phones crop the sides, wide screens show green at the sides */
   #splash { position:fixed; inset:0; z-index:50; background:#036c35; overflow:hidden; transition:opacity .45s; }
   #splash.out { opacity:0; pointer-events:none; }
-  #splash .art { position:absolute; left:50%; top:0; transform:translateX(-50%); height:100vh; height:100dvh; aspect-ratio:941/1672; background:url(splash.jpg) center/cover; }
+  #splash .art { position:absolute; left:50%; top:0; transform:translateX(-50%); height:100vh; width:calc(100vh * 941 / 1672); height:100dvh; width:calc(100dvh * 941 / 1672); background:url(splash.jpg) center/cover; }
   #splash .art i { position:absolute; left:24.76%; top:86.48%; width:50.48%; height:1.56%; border-radius:99px; overflow:hidden; } /* sits exactly on the bar drawn in the image */
   #splash .art i::after { content:''; position:absolute; inset:0 auto 0 0; width:47%; background:#fff; border-radius:99px; animation:load 1.5s ease-out forwards; }
   @keyframes load { to { width:100%; } }
@@ -83,6 +83,16 @@
 </head>
 <body>
 <div id="splash"><div class="art"><i></i></div></div>
+<script>
+/* Safety net in old-style JavaScript, so it runs on any browser: if the app has not started after 8 seconds,
+   remove the loading page and say what to do instead of leaving the screen stuck. */
+setTimeout(function () {
+  if (window.appStarted) return;
+  var sp = document.getElementById('splash'); if (sp) sp.parentNode.removeChild(sp);
+  var m = document.getElementById('app');
+  if (m) m.innerHTML = '<div class="card"><h2>The app could not start on this device</h2><p>Please update <b>Chrome</b> and <b>Android System WebView</b> in the Play Store, then open the app again.</p><p class="mut">Browser: ' + navigator.userAgent.replace(/[<>&]/g, '') + '</p></div>';
+}, 8000);
+</script>
 <header>
   <h1 id="home">Camp Pharmacy Records</h1>
   <button id="syncBtn" title="Sync now">Sync</button>
@@ -99,7 +109,7 @@ const hideSplash = () => { const sp = document.getElementById('splash'); if (!sp
 setTimeout(hideSplash, 6000); // safety net: never leave the loading page up if something below fails
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const norm = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const today = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
@@ -129,7 +139,7 @@ function askTyped(msg, word, okLabel) { // for actions that cannot be undone: th
 function stable(v) { // JSON with sorted keys, for comparing records
   if (Array.isArray(v)) return '[' + v.map(stable).join(',') + ']';
   if (v && typeof v === 'object') return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stable(v[k])).join(',') + '}';
-  return JSON.stringify(v ?? null);
+  return JSON.stringify(v == null ? null : v);
 }
 
 /* ---------- local storage on this device (IndexedDB, falls back to localStorage) ---------- */
@@ -405,12 +415,12 @@ function sessionList(s) {
   return out.sort((a, b) => (b.pending > 0) - (a.pending > 0) || a.p.id.localeCompare(b.p.id));
 }
 function renderHome() {
-  const all = live(), cur = nowSess(), vs = view.sess ?? cur;
+  const all = live(), cur = nowSess(), vs = view.sess == null ? cur : view.sess;
   const list = sessionList(vs), pend = list.filter(x => x.pending).length;
   $('#app').innerHTML = `
     <div class="card">
       <label for="q">State code: batch (e.g. 26C), then the 4-digit number</label>
-      <div class="codebox"><b class="code">RV/</b><input id="qb" maxlength="3" placeholder="___" autocomplete="off" autocapitalize="characters" spellcheck="false" value="${esc(view.qb ?? defBatch())}"><b class="code">/</b><input id="q" inputmode="numeric" maxlength="4" placeholder="____" autocomplete="off" value="${esc(view.q || '')}"></div>
+      <div class="codebox"><b class="code">RV/</b><input id="qb" maxlength="3" placeholder="___" autocomplete="off" autocapitalize="characters" spellcheck="false" value="${esc(view.qb == null ? defBatch() : view.qb)}"><b class="code">/</b><input id="q" inputmode="numeric" maxlength="4" placeholder="____" autocomplete="off" value="${esc(view.q || '')}"></div>
       <div class="fld"><label for="qn">or search by name</label><input id="qn" autocomplete="off" spellcheck="false" value="${esc(view.qn || '')}"></div>
       <div id="results"></div>
     </div>
@@ -666,7 +676,7 @@ function renderSettings() {
   if ($('#wipe')) $('#wipe').onclick = wipeAll;
   $('#exp').onclick = () => { backedUp = true; dl(`pharmacy-backup-${today()}.json`, JSON.stringify([...patients.values()].map(clean)), 'application/json'); };
   $('#csv').onclick = () => {
-    const c = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+    const c = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
     const rows = [['State code', 'Name', 'Sex', 'Platoon', 'Phone', 'Allergies', 'Prescription date', 'Diagnosis', 'Drug', 'Dose', 'When', 'Days', 'Total doses', 'Taken', 'Missed', 'Left', 'Status']];
     live().sort((a, b) => a.id.localeCompare(b.id)).forEach(p => {
       const ds = items(p, 'drug'), base = [p.code, p.name, p.sex, p.platoon, p.phone, p.allergies];
@@ -742,6 +752,7 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.addEventListener('message', e => { if (e.data === 'update') $('#upd').hidden = false; });
 }
 $('#upd').onclick = () => location.reload();
+window.appStarted = true;
 (async () => {
   await Store.open();
   (await Store.all()).forEach(p => patients.set(p.id, p));
